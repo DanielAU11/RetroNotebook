@@ -1,4 +1,4 @@
-const { contextBridge, clipboard, nativeImage } = require("electron");
+const { contextBridge, clipboard, nativeImage, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("retroNotebook", {
   platform: process.platform,
@@ -16,5 +16,8 @@ contextBridge.exposeInMainWorld("retroNotebook", {
       clipboard.writeImage(image);
       return true;
     }
+  },
+  citation: {
+    fetchText: (url) => ipcRenderer.invoke("citation:fetchText", String(url || ""))
   }
 });

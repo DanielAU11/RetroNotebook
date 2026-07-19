@@ -108,10 +108,12 @@ function bindElements() {
     "pageTitleInput",
     "tagInput",
     "editor",
+    "pageGuides",
     "styleSelect",
     "fontSelect",
     "fontSizeSelect",
     "paperSizeSelect",
+    "pageSetupIconBtn",
     "pageHeaderInput",
     "pageFooterInput",
     "headerAlignSelect",
@@ -129,6 +131,7 @@ function bindElements() {
     "chartIconBtn",
     "graphIconBtn",
     "drawIconBtn",
+    "linkIconBtn",
     "dividerIconBtn",
     "glossaryIconBtn",
     "taskIconBtn",
@@ -187,6 +190,7 @@ function bindElements() {
     "citationDoiInput",
     "citationUrlInput",
     "citationNotesInput",
+    "citationAutoBtn",
     "citationPdfBtn",
     "newCitationBtn",
     "saveCitationBtn",
@@ -194,6 +198,8 @@ function bindElements() {
     "citationList",
     "insertCitationBtn",
     "insertBibliographyBtn",
+    "citationPdfPreview",
+    "citationPdfEmpty",
     "latexInput",
     "latexNameInput",
     "latexPreview",
@@ -272,6 +278,7 @@ function bindEvents() {
   els.fontSelect.addEventListener("change", () => exec("fontName", els.fontSelect.value));
   els.fontSizeSelect.addEventListener("change", () => exec("fontSize", els.fontSizeSelect.value));
   els.paperSizeSelect.addEventListener("change", updateActivePaperSize);
+  els.pageSetupIconBtn.addEventListener("click", () => switchMainTab("pageSetup"));
   els.applyPageSetupBtn.addEventListener("click", applyPageSetup);
   els.insertPageBreakBtn.addEventListener("click", insertManualPageBreak);
   els.openPrintPreviewBtn.addEventListener("click", openPrintPreview);
@@ -321,11 +328,13 @@ function bindEvents() {
     queueSave();
     renderStats();
     renderDashboard();
+    renderPageGuides();
     if (document.querySelector("#citationsPanel.active")) renderCitationManager();
     updatePhraseMenu();
   });
   els.editor.addEventListener("keyup", updatePhraseMenu);
   els.editor.addEventListener("keydown", handleEditorKeydown);
+  els.editor.addEventListener("scroll", renderPageGuides);
 
   els.editor.addEventListener("click", (event) => {
     handleObjectSelectionClick(event);
@@ -340,6 +349,7 @@ function bindEvents() {
   els.chartIconBtn.addEventListener("click", insertChart);
   els.graphIconBtn.addEventListener("click", insertGraph);
   els.drawIconBtn.addEventListener("click", insertDrawing);
+  els.linkIconBtn.addEventListener("click", insertHyperlink);
   els.dividerIconBtn.addEventListener("click", insertDivider);
   els.glossaryIconBtn.addEventListener("click", insertFullGlossary);
   els.taskIconBtn.addEventListener("click", insertTasks);
@@ -368,6 +378,7 @@ function bindEvents() {
 
   els.citationStyleSelect.addEventListener("change", updateCitationStyle);
   els.citationCustomFormatInput.addEventListener("change", updateCitationStyle);
+  els.citationAutoBtn.addEventListener("click", autoFillCitation);
   els.citationPdfBtn.addEventListener("click", () => els.citationPdfInput.click());
   els.citationPdfInput.addEventListener("change", attachCitationPdf);
   els.newCitationBtn.addEventListener("click", newCitationDraft);
@@ -1127,6 +1138,7 @@ function loadActivePageIntoEditor() {
   els.editor.innerHTML = page.content || "";
   renderWidgets();
   typesetMath();
+  renderPageGuides();
 }
 
 function renderStats() {
@@ -1143,6 +1155,7 @@ function renderStats() {
   const pages = estimateEditorPageCount();
   els.countText.textContent = `${words} words / ${chars} chars / ${pages} page${pages === 1 ? "" : "s"}`;
   updatePageBreakInfo(pages);
+  renderPageGuides();
 }
 
 function renderDueCards() {
@@ -1640,6 +1653,20 @@ async function insertGraph() {
 
 function insertDrawing() {
   insertHtml(`<div class="retro-widget draw-widget" contenteditable="false"><div class="widget-title">Drawing Pad <span>pen</span>${widgetActions(false)}</div><canvas class="draw-pad"></canvas></div><p></p>`);
+}
+
+async function insertHyperlink() {
+  const selection = window.getSelection().toString().trim();
+  const result = await openHyperlinkDialog(selection);
+  if (!result) return;
+  const url = normalizeUrl(result.url);
+  if (!url) {
+    setStatus("Enter a valid web link.");
+    return;
+  }
+  const label = result.text.trim() || url;
+  insertHtml(`<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>&nbsp;`);
+  setStatus("Hyperlink inserted.");
 }
 
 function insertDivider() {
@@ -2208,7 +2235,29 @@ function updateActivePaperSize() {
   saveState();
   renderWidgets();
   renderStats();
+  renderPageGuides();
   setStatus(`Paper size set to ${PAPER_SIZES[page.paperSize].label}.`);
+}
+
+function renderPageGuides() {
+  if (!els.pageGuides || !els.editor) return;
+  const editorRect = els.editor.getBoundingClientRect();
+  const bodyRect = els.editor.parentElement.getBoundingClientRect();
+  const pageHeight = cssLengthToPixels(getComputedStyle(document.documentElement).getPropertyValue("--paper-height")) || 1056;
+  const total = Math.max(1, Math.ceil(els.editor.scrollHeight / pageHeight));
+  els.pageGuides.innerHTML = "";
+  if (total < 2) return;
+  for (let pageIndex = 1; pageIndex < total; pageIndex += 1) {
+    const top = editorRect.top - bodyRect.top + pageHeight * pageIndex - els.editor.scrollTop;
+    if (top < 32 || top > bodyRect.height - 8) continue;
+    const guide = document.createElement("div");
+    guide.className = "page-guide";
+    guide.style.left = `${editorRect.left - bodyRect.left}px`;
+    guide.style.width = `${editorRect.width}px`;
+    guide.style.top = `${top}px`;
+    guide.innerHTML = `<span>Page ${pageIndex + 1}</span>`;
+    els.pageGuides.appendChild(guide);
+  }
 }
 
 function loadPageSetupControls(page) {
@@ -2243,7 +2292,28 @@ function applyPageSetup() {
 }
 
 function insertManualPageBreak() {
-  insertHtml('<div class="manual-page-break" contenteditable="false">Page Break</div><p></p>');
+  const target = currentRichEditor();
+  if (target !== els.editor) {
+    insertHtml('<div class="manual-page-break" contenteditable="false">Page Break</div><p></p>');
+    return;
+  }
+  const selection = window.getSelection();
+  const node = selection.anchorNode?.nodeType === Node.TEXT_NODE ? selection.anchorNode.parentElement : selection.anchorNode;
+  const block = node?.closest?.("li")?.closest("ul, ol") || node?.closest?.("p, h1, h2, h3, blockquote, table, .retro-widget, .image-figure") || els.editor.lastElementChild;
+  const marker = document.createElement("div");
+  marker.className = "manual-page-break";
+  marker.contentEditable = "false";
+  marker.textContent = "Page Break";
+  const paragraph = document.createElement("p");
+  paragraph.innerHTML = "<br>";
+  if (block && block !== els.editor && els.editor.contains(block)) {
+    block.insertAdjacentElement("afterend", marker);
+    marker.insertAdjacentElement("afterend", paragraph);
+  } else {
+    els.editor.append(marker, paragraph);
+  }
+  syncEditorNow();
+  renderPageGuides();
   setStatus("Manual page break inserted.");
 }
 
@@ -2446,6 +2516,7 @@ function appMenuItems() {
     ],
     insert: [
       { label: "Picture...", action: "insertImage" },
+      { label: "Hyperlink...", action: "hyperlink" },
       { label: "Equation", action: "equation" },
       { label: "Table", action: "table" },
       { label: "Chart", action: "chart" },
@@ -2531,6 +2602,7 @@ function menuActions() {
     review: () => switchMainTab("review"),
     focusPage: () => withRichEditor(els.editor, () => els.editor.focus()),
     insertImage,
+    hyperlink: insertHyperlink,
     equation: insertSelectedEquation,
     table: insertTable,
     chart: insertChart,
@@ -2706,6 +2778,17 @@ function loadCitationDraft(citation) {
   els.citationUrlInput.value = citation.url || "";
   els.citationNotesInput.value = citation.notes || "";
   els.citationPdfBtn.textContent = citation.pdfName ? `PDF: ${citation.pdfName.slice(0, 22)}` : "Attach PDF";
+  renderCitationPdfPreview(citation);
+}
+
+function renderCitationPdfPreview(citation) {
+  if (!els.citationPdfPreview || !els.citationPdfEmpty) return;
+  const src = citation?.pdfDataUrl || "";
+  els.citationPdfPreview.src = src || "about:blank";
+  els.citationPdfPreview.parentElement.classList.toggle("has-pdf", Boolean(src));
+  els.citationPdfEmpty.textContent = citation?.pdfName && !src
+    ? `PDF "${citation.pdfName}" is linked by filename but was too large to embed.`
+    : "Attach a PDF to preview it here.";
 }
 
 function readCitationDraft() {
@@ -2770,6 +2853,25 @@ function updateCitationStyle() {
   setStatus(`Citation style set to ${state.citationStyle.toUpperCase()}.`);
 }
 
+async function autoFillCitation() {
+  const draft = readCitationDraft();
+  const metadata = {};
+  const doi = draft.doi || extractDoi(`${draft.url} ${draft.notes} ${draft.title}`);
+  if (doi) metadata.doi = doi;
+  if (draft.url || doi) {
+    setStatus("Fetching citation metadata...");
+    const fetched = await fetchCitationMetadata(draft.url, doi);
+    Object.assign(metadata, fetched);
+  }
+  if (draft.pdfDataUrl || draft.pdfName) {
+    Object.assign(metadata, inferCitationFromPdf(draft.pdfDataUrl, draft.pdfName));
+  }
+  Object.assign(metadata, inferCitationFromUrl(draft.url || metadata.url || ""));
+  const merged = mergeCitationMetadata(draft, metadata);
+  loadCitationDraft(merged);
+  setStatus(Object.keys(metadata).length ? "Citation fields auto-filled. Review and Save when ready." : "No metadata found. Add more fields or check the link.");
+}
+
 function attachCitationPdf() {
   const file = els.citationPdfInput.files?.[0];
   if (!file) return;
@@ -2777,6 +2879,7 @@ function attachCitationPdf() {
   current.pdfName = file.name;
   const finish = (dataUrl = "") => {
     current.pdfDataUrl = dataUrl;
+    Object.assign(current, mergeCitationMetadata(current, inferCitationFromPdf(dataUrl, file.name)));
     const index = state.citations.findIndex((item) => item.id === current.id);
     if (index >= 0) state.citations[index] = current;
     else state.citations.push(current);
@@ -2889,6 +2992,138 @@ function firstAuthorLastName(authors) {
   const first = String(authors || "").split(/[;,]/)[0]?.trim() || "";
   const parts = first.split(/\s+/).filter(Boolean);
   return parts.length ? parts.at(-1).replace(/[.,]/g, "") : "";
+}
+
+async function fetchCitationMetadata(url, doi) {
+  const metadata = {};
+  if (doi) {
+    const crossref = await fetchText(`https://api.crossref.org/works/${encodeURIComponent(doi)}`);
+    if (crossref?.text) Object.assign(metadata, parseCrossrefMetadata(crossref.text));
+  }
+  const targetUrl = normalizeUrl(url || metadata.url || "");
+  if (targetUrl) {
+    const response = await fetchText(targetUrl);
+    if (response?.text) Object.assign(metadata, parseHtmlCitationMetadata(response.text, response.url || targetUrl));
+  }
+  return metadata;
+}
+
+async function fetchText(url) {
+  if (!url) return null;
+  if (window.retroNotebook?.citation?.fetchText) {
+    const result = await window.retroNotebook.citation.fetchText(url);
+    return result?.ok || result?.text ? result : null;
+  }
+  try {
+    const response = await fetch(url);
+    return { ok: response.ok, status: response.status, url: response.url, text: await response.text() };
+  } catch {
+    return null;
+  }
+}
+
+function parseCrossrefMetadata(text) {
+  try {
+    const item = JSON.parse(text)?.message || {};
+    return {
+      title: item.title?.[0] || "",
+      authors: (item.author || []).map((author) => [author.given, author.family].filter(Boolean).join(" ")).join("; "),
+      year: String(item.issued?.["date-parts"]?.[0]?.[0] || item.published?.["date-parts"]?.[0]?.[0] || ""),
+      journal: item["container-title"]?.[0] || item.publisher || "",
+      doi: item.DOI || "",
+      url: item.URL || ""
+    };
+  } catch {
+    return {};
+  }
+}
+
+function parseHtmlCitationMetadata(html, fallbackUrl) {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const meta = (name) =>
+    doc.querySelector(`meta[name="${name}"], meta[property="${name}"], meta[name="${name.toLowerCase()}"], meta[property="${name.toLowerCase()}"]`)?.content?.trim() || "";
+  const authors = [...doc.querySelectorAll('meta[name="citation_author"], meta[name="author"], meta[property="article:author"]')]
+    .map((node) => node.content?.trim())
+    .filter(Boolean);
+  const canonical = doc.querySelector('link[rel="canonical"]')?.href || "";
+  return {
+    title: meta("citation_title") || meta("og:title") || doc.querySelector("title")?.textContent?.replace(/\s+/g, " ").trim() || "",
+    authors: authors.join("; "),
+    year: yearFromDate(meta("citation_publication_date") || meta("article:published_time") || meta("date") || meta("dc.date")),
+    journal: meta("citation_journal_title") || meta("og:site_name") || new URL(fallbackUrl).hostname.replace(/^www\./, ""),
+    doi: meta("citation_doi") || extractDoi(html),
+    url: meta("og:url") || canonical || fallbackUrl
+  };
+}
+
+function inferCitationFromPdf(dataUrl, fileName) {
+  const metadata = inferCitationFromFilename(fileName);
+  const raw = pdfDataUrlToText(dataUrl);
+  if (!raw) return metadata;
+  return {
+    ...metadata,
+    title: pdfInfoValue(raw, "Title") || metadata.title,
+    authors: pdfInfoValue(raw, "Author") || metadata.authors,
+    year: yearFromDate(pdfInfoValue(raw, "CreationDate")) || metadata.year
+  };
+}
+
+function inferCitationFromFilename(fileName) {
+  const base = String(fileName || "").replace(/\.pdf$/i, "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  const year = base.match(/\b(19|20)\d{2}\b/)?.[0] || "";
+  return { title: base.replace(/\b(19|20)\d{2}\b/g, "").trim(), year };
+}
+
+function inferCitationFromUrl(url) {
+  const normalized = normalizeUrl(url);
+  if (!normalized) return {};
+  try {
+    const parsed = new URL(normalized);
+    const last = decodeURIComponent(parsed.pathname.split("/").filter(Boolean).pop() || "").replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ");
+    return {
+      title: last && !/^\d+$/.test(last) ? capitalizeTitle(last) : "",
+      journal: parsed.hostname.replace(/^www\./, ""),
+      doi: extractDoi(normalized),
+      url: normalized
+    };
+  } catch {
+    return {};
+  }
+}
+
+function mergeCitationMetadata(current, metadata) {
+  const merged = { ...current };
+  ["title", "authors", "year", "journal", "doi", "url"].forEach((key) => {
+    if (!merged[key] && metadata[key]) merged[key] = String(metadata[key]).trim();
+  });
+  return normalizeCitation(merged);
+}
+
+function pdfDataUrlToText(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:application\/pdf[^,]*,(.+)$/);
+  if (!match) return "";
+  try {
+    return atob(match[1]).slice(0, 120000);
+  } catch {
+    return "";
+  }
+}
+
+function pdfInfoValue(raw, key) {
+  const match = raw.match(new RegExp(`/${key}\\s*\\((.*?)\\)`, "s"));
+  return match ? match[1].replace(/\\([()\\])/g, "$1").replace(/\s+/g, " ").trim() : "";
+}
+
+function extractDoi(value) {
+  return String(value || "").match(/\b10\.\d{4,9}\/[-._;()/:A-Z0-9]+\b/i)?.[0] || "";
+}
+
+function yearFromDate(value) {
+  return String(value || "").match(/\b(19|20)\d{2}\b/)?.[0] || "";
+}
+
+function capitalizeTitle(value) {
+  return String(value || "").replace(/\w\S*/g, (word) => word[0].toUpperCase() + word.slice(1));
 }
 
 function updatePhraseMenu() {
@@ -3075,6 +3310,8 @@ async function runContextAction(action) {
       return;
     }
     setStatus("Image copied.");
+  } else if (action === "link") {
+    await insertHyperlink();
   } else if (action === "editObject") {
     await editSelectedObject(contextObject || selectedObject);
   } else if (action === "deleteObject") {
@@ -3457,15 +3694,17 @@ function drawRadarChart(ctx, data, w, h) {
   drawLegend(ctx, data.variables, colors, w - 150, 14);
 }
 
-function renderGraphWidget(widget) {
+function renderGraphWidget(widget, resize = true) {
   const data = decodeDataSet(widget.dataset.graph, "graph");
   const canvas = widget.querySelector("canvas") || replaceGraphSvgWithCanvas(widget);
   const rect = canvas.getBoundingClientRect();
   const scale = window.devicePixelRatio || 1;
-  canvas.width = Math.max(1, Math.floor(rect.width * scale));
-  canvas.height = Math.max(1, Math.floor(rect.height * scale));
+  if (resize) {
+    canvas.width = Math.max(1, Math.floor(rect.width * scale));
+    canvas.height = Math.max(1, Math.floor(rect.height * scale));
+  }
   const ctx = canvas.getContext("2d");
-  ctx.scale(scale, scale);
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
   const w = rect.width;
   const h = rect.height;
   ctx.clearRect(0, 0, w, h);
@@ -3505,7 +3744,7 @@ function ensureGraphInteraction(widget, canvas) {
     const yaw = start.rotation.yaw + (event.clientX - start.x) * 0.012;
     const pitch = clamp(start.rotation.pitch + (event.clientY - start.y) * 0.008, -0.85, 0.85);
     widget.dataset.rotation = JSON.stringify({ yaw, pitch });
-    renderGraphWidget(widget);
+    renderGraphWidget(widget, false);
   });
   const endDrag = (event) => {
     if (!dragging) return;
@@ -3526,6 +3765,7 @@ function ensureGraphInteraction(widget, canvas) {
   canvas.addEventListener("lostpointercapture", endDrag);
   canvas.title = "Drag to rotate 3D graph";
   canvas.style.touchAction = "none";
+  canvas.addEventListener("dragstart", (event) => event.preventDefault());
   canvas.dataset.rotatable = "true";
 }
 
@@ -4054,6 +4294,45 @@ function retroPrompt(title, message, value = "", multiline = false) {
   });
 }
 
+function openHyperlinkDialog(defaultText = "") {
+  return new Promise((resolve) => {
+    dialogResolve = resolve;
+    els.dialogTitle.textContent = "Insert Hyperlink";
+    els.dialogMessage.textContent = "Create a clickable link in the current note.";
+    els.dialogIcon.className = "icon95 WebLink_16x16_4";
+    const dialog = els.modalOverlay.querySelector(".retro-dialog");
+    dialog.classList.add("has-fields");
+    dialog.classList.remove("has-multiline", "has-data");
+    els.dialogFields.innerHTML = `
+      <div class="field-row-stacked">
+        <label>Display text</label>
+        <input data-link-text value="${escapeHtml(defaultText)}" />
+      </div>
+      <div class="field-row-stacked">
+        <label>Address</label>
+        <input data-link-url value="https://" />
+      </div>
+    `;
+    els.dialogButtons.innerHTML = "";
+    const ok = document.createElement("button");
+    ok.textContent = "OK";
+    ok.addEventListener("click", () => closeRetroDialog({
+      text: els.dialogFields.querySelector("[data-link-text]").value,
+      url: els.dialogFields.querySelector("[data-link-url]").value
+    }));
+    const cancel = document.createElement("button");
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => closeRetroDialog(null));
+    els.dialogButtons.append(ok, cancel);
+    els.modalOverlay.hidden = false;
+    setTimeout(() => {
+      const field = els.dialogFields.querySelector(defaultText ? "[data-link-url]" : "[data-link-text]");
+      field.focus();
+      field.select?.();
+    }, 0);
+  });
+}
+
 function openTagDialog(title, options) {
   return new Promise((resolve) => {
     dialogResolve = resolve;
@@ -4569,6 +4848,18 @@ function normalizeHexColor(value) {
   return "";
 }
 
+function normalizeUrl(value) {
+  const text = String(value || "").trim();
+  if (!text || text === "https://") return "";
+  const withProtocol = /^https?:\/\//i.test(text) ? text : `https://${text}`;
+  try {
+    const url = new URL(withProtocol);
+    return url.href;
+  } catch {
+    return "";
+  }
+}
+
 function estimateEditorPageCount() {
   if (!els.editor) return 1;
   const pageHeight = cssLengthToPixels(getComputedStyle(document.documentElement).getPropertyValue("--paper-height")) || 1056;
@@ -4634,6 +4925,7 @@ function normalizeCitation(citation = {}) {
 window.addEventListener("resize", () => {
   setToolWidth(toolWidth());
   renderWidgets();
+  renderPageGuides();
 });
 
 window.addEventListener("afterprint", () => {

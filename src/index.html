@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self' https://unpkg.com https://cdn.jsdelivr.net; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' https://unpkg.com 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self';"
+      content="default-src 'self' https://unpkg.com https://cdn.jsdelivr.net; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' https://unpkg.com 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https: http:; frame-src 'self' data: blob:;"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Retro Notebook Studio</title>
@@ -51,6 +51,7 @@
           <button id="chartIconBtn" class="tool-button" title="Insert chart"><span class="pixel-icon icon-chart-tool"></span></button>
           <button id="graphIconBtn" class="tool-button" title="Insert data graph"><span class="pixel-icon icon-graph-tool"></span></button>
           <button id="drawIconBtn" class="tool-button" title="Insert drawing pad"><span class="icon95 Pen_16x16_4"></span></button>
+          <button id="linkIconBtn" class="tool-button" title="Insert hyperlink"><span class="icon95 WebLink_16x16_4"></span></button>
           <button id="dividerIconBtn" class="tool-button" title="Insert divider"><span class="pixel-icon icon-divider-tool"></span></button>
           <button id="glossaryIconBtn" class="tool-button" title="Insert glossary"><span class="pixel-icon icon-glossary-tool"></span></button>
           <button id="makeCardIconBtn" class="tool-button" title="Create flashcard"><span class="icon95 HelpBook_16x16_4"></span></button>
@@ -83,6 +84,7 @@
             <option value="executive">Executive</option>
             <option value="index">Index Card</option>
           </select>
+          <button id="pageSetupIconBtn" class="tool-button" title="Page setup"><span class="icon95 FileText_16x16_4"></span></button>
           <span class="toolbar-separator"></span>
           <button data-command="bold" class="tool-button" title="Bold"><span class="icon95 Bold_16x16_4"></span></button>
           <button data-command="italic" class="tool-button" title="Italic"><span class="icon95 Italic_16x16_4"></span></button>
@@ -92,7 +94,7 @@
           <button data-command="superscript" class="tool-button" title="Superscript"><span class="pixel-icon icon-superscript"></span></button>
           <button id="textColorBtn" class="tool-button color-tool-button" title="Text color"><span class="pixel-icon icon-text-color-tool"></span><span id="textColorChip" class="color-chip"></span></button>
           <input id="textColorInput" class="hidden-color-input" type="color" value="#111111" />
-          <button id="highlightColorBtn" class="tool-button color-tool-button" title="Highlight"><span class="pixel-icon icon-highlight-tool"></span><span id="highlightColorChip" class="color-chip highlight-chip"></span></button>
+          <button id="highlightColorBtn" class="tool-button color-tool-button" title="Highlight"><span class="pixel-icon icon-highlighter-tool"></span><span id="highlightColorChip" class="color-chip highlight-chip"></span></button>
           <input id="highlightColorInput" class="hidden-color-input" type="color" value="#fff7a8" />
           <span class="toolbar-separator"></span>
           <button data-command="justifyLeft" class="tool-button" title="Align left"><span class="icon95 Left_16x16_4"></span></button>
@@ -163,6 +165,7 @@
               <input id="tagInput" placeholder="tags: math, biology, exam-1" />
             </div>
             <article id="editor" class="editor-page" contenteditable="true" spellcheck="true"></article>
+            <div id="pageGuides" class="page-guides" aria-hidden="true"></div>
           </div>
         </section>
 
@@ -174,7 +177,7 @@
           </div>
           <menu class="side-tabs" role="tablist" aria-label="Workspace tools">
             <li role="tab" class="side-tab active" data-main-tab="dashboard"><a href="#">Overview</a></li>
-            <li role="tab" class="side-tab" data-main-tab="pageSetup"><a href="#">Page</a></li>
+            <li role="tab" class="side-tab" data-main-tab="pageSetup"><a href="#">Page Setup</a></li>
             <li role="tab" class="side-tab" data-main-tab="latex"><a href="#">LaTeX</a></li>
             <li role="tab" class="side-tab" data-main-tab="insert"><a href="#">Templates</a></li>
             <li role="tab" class="side-tab" data-main-tab="phrases"><a href="#">Phrases</a></li>
@@ -337,7 +340,7 @@
                       <button data-template-command="insertUnorderedList" title="Bulleted list"><span class="icon95 Listicon_16x16_4"></span></button>
                       <button data-template-command="insertOrderedList" title="Numbered list"><span class="icon95 OrderAs_16x16_4"></span></button>
                       <button data-template-tool="textColor" title="Text color"><span class="pixel-icon icon-text-color-tool"></span></button>
-                      <button data-template-tool="highlight" title="Highlight"><span class="pixel-icon icon-highlight-tool"></span></button>
+                      <button data-template-tool="highlight" title="Highlight"><span class="pixel-icon icon-highlighter-tool"></span></button>
                       <button data-template-tool="equation" title="Equation"><span class="sigma-icon">&Sigma;</span></button>
                       <button data-template-tool="table" title="Table"><span class="pixel-icon icon-table-tool"></span></button>
                       <button data-template-tool="chart" title="Chart"><span class="pixel-icon icon-chart-tool"></span></button>
@@ -436,10 +439,18 @@
                   <textarea id="citationNotesInput" rows="3" placeholder="Key finding, quote, methods note..."></textarea>
                 </div>
                 <div class="button-row right">
+                  <button id="citationAutoBtn">Auto Fill</button>
                   <button id="citationPdfBtn">Attach PDF</button>
                   <button id="newCitationBtn">New</button>
                   <button id="saveCitationBtn">Save</button>
                   <button id="deleteCitationBtn">Delete</button>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>PDF Preview</legend>
+                <div class="pdf-preview-shell">
+                  <iframe id="citationPdfPreview" title="Citation PDF preview"></iframe>
+                  <div id="citationPdfEmpty" class="pdf-preview-empty">Attach a PDF to preview it here.</div>
                 </div>
               </fieldset>
               <fieldset>
@@ -543,6 +554,7 @@
       <button data-context-action="paste">Paste</button>
       <button data-context-action="pasteImage">Paste Image</button>
       <hr />
+      <button data-context-action="link">Hyperlink...</button>
       <button data-context-action="editObject">Edit Object</button>
       <button data-context-action="deleteObject">Delete Object</button>
       <hr />

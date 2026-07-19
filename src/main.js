@@ -1,7 +1,24 @@
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, shell, ipcMain, net } = require("electron");
 const path = require("path");
 
 const windows = new Set();
+
+ipcMain.handle("citation:fetchText", async (_event, rawUrl) => {
+  const url = String(rawUrl || "").trim();
+  if (!/^https?:\/\//i.test(url)) return { ok: false, error: "Only http and https links are supported." };
+  try {
+    const response = await net.fetch(url, { redirect: "follow" });
+    const text = await response.text();
+    return {
+      ok: response.ok,
+      status: response.status,
+      url: response.url,
+      text: text.slice(0, 650000)
+    };
+  } catch (error) {
+    return { ok: false, error: error.message || "Could not fetch citation metadata." };
+  }
+});
 
 function createWindow() {
   const win = new BrowserWindow({
