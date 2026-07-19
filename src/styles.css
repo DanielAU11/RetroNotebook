@@ -725,11 +725,24 @@ button {
   background: var(--tag-color);
   color: #111;
   border: 1px solid #777;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .tag-chip.active {
   box-shadow: inset -1px -1px #0a0a0a, inset 1px 1px #fff, inset -2px -2px #808080, inset 2px 2px #dfdfdf;
   font-weight: bold;
+}
+
+.tag-chip [data-delete-tag] {
+  display: inline-grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border-left: 1px solid rgba(0, 0, 0, 0.35);
+  font-size: 10px;
+  line-height: 1;
 }
 
 .notebook-select-row {
@@ -926,7 +939,8 @@ button {
   border-bottom: 1px solid #fff;
 }
 
-.manual-page-break {
+.manual-page-break,
+.auto-page-break {
   display: grid;
   place-items: center;
   height: 34px;
@@ -939,6 +953,11 @@ button {
   box-shadow: inset 0 1px #dfdfdf, inset 0 -1px #707070;
   break-after: page;
   page-break-after: always;
+}
+
+.auto-page-break {
+  color: #333;
+  font-style: italic;
 }
 
 .editor-page .tag-list-line {
@@ -1001,6 +1020,19 @@ table.selected-object {
   background: #eef4fa;
   border-bottom: 1px solid #000080;
   cursor: default;
+}
+
+.citation-ref.numeric {
+  vertical-align: super;
+  font-size: 72%;
+  line-height: 0;
+  background: transparent;
+  border-bottom: 0;
+}
+
+.citation-ref a {
+  color: #000080;
+  text-decoration: none;
 }
 
 .citation-bibliography {
@@ -1509,7 +1541,9 @@ table.selected-object {
 }
 
 .print-body .widget-actions,
-.print-body .manual-page-break {
+.print-body .graph-rotate-actions,
+.print-body .manual-page-break,
+.print-body .auto-page-break {
   display: none !important;
 }
 
@@ -1590,6 +1624,24 @@ table.selected-object {
   display: inline-flex;
   gap: 4px;
   margin-left: auto;
+}
+
+.graph-rotate-actions {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.graph-rotate-actions + .widget-actions {
+  margin-left: 4px;
+}
+
+.graph-rotate-actions button {
+  min-width: 19px;
+  height: 19px;
+  padding: 0;
+  font-size: 10px;
+  line-height: 1;
 }
 
 .widget-actions button {
@@ -1943,6 +1995,7 @@ fieldset {
 }
 
 .printing .widget-actions,
+.printing .graph-rotate-actions,
 .printing .context-menu,
 .printing .app-menu,
 .printing .color-menu,

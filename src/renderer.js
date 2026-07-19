@@ -83,6 +83,8 @@ let activeRichEditor = null;
 let recognition = null;
 let isDictating = false;
 const pdfObjectUrls = new Map();
+let paginationFrame = null;
+let paginatingEditor = false;
 
 document.addEventListener("DOMContentLoaded", () => {
   bindElements();
@@ -278,7 +280,7 @@ function bindEvents() {
   els.fontSelect.addEventListener("change", () => exec("fontName", els.fontSelect.value));
   els.fontSizeSelect.addEventListener("change", () => exec("fontSize", els.fontSizeSelect.value));
   els.paperSizeSelect.addEventListener("change", updateActivePaperSize);
-  els.pageSetupIconBtn.addEventListener("click", () => switchMainTab("pageSetup"));
+  els.pageSetupIconBtn.addEventListener("click", openPageSetupDialog);
   els.applyPageSetupBtn.addEventListener("click", applyPageSetup);
   els.insertPageBreakBtn.addEventListener("click", insertManualPageBreak);
   els.openPrintPreviewBtn.addEventListener("click", openPrintPreview);
@@ -303,15 +305,13 @@ function bindEvents() {
     renderDashboard();
   });
 
-  els.tagInput.addEventListener("input", () => {
-    const page = activePage();
-    page.tags = els.tagInput.value.split(",").map((tag) => tag.trim()).filter(Boolean);
-    ensurePageTagsInLibrary(page);
-    page.updatedAt = Date.now();
-    queueSave();
-    renderBinder();
-    renderTags();
+  els.tagInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === ",") {
+      event.preventDefault();
+      commitTagInput();
+    }
   });
+  els.tagInput.addEventListener("blur", commitTagInput);
 
   els.newNotebookBtn.addEventListener("click", createNotebook);
   els.notebookSelect.addEventListener("change", () => selectNotebook(els.notebookSelect.value));
@@ -320,12 +320,15 @@ function bindEvents() {
   els.deleteNotebookBtn.addEventListener("click", deleteNotebook);
 
   els.editor.addEventListener("input", () => {
+    if (paginatingEditor) return;
     clearFindMarks();
-    const page = activePage();
-    page.content = els.editor.innerHTML;
-    page.plain = els.editor.innerText;
+    const page = loadedEditorPage();
+    if (!page) return;
+    page.content = cleanRichHtml(els.editor);
+    page.plain = cleanRichText(els.editor);
     page.updatedAt = Date.now();
     queueSave();
+    scheduleAutoPagination();
     renderStats();
     renderDashboard();
     if (document.querySelector("#citationsPanel.active")) renderCitationManager();
@@ -338,6 +341,7 @@ function bindEvents() {
     handleObjectSelectionClick(event);
     if (event.target.matches(".draw-pad")) event.preventDefault();
     if (event.target.closest("[data-widget-action]")) handleWidgetAction(event);
+    if (event.target.closest("[data-graph-rotate]")) handleGraphRotate(event);
   });
 
   els.findIconBtn.addEventListener("click", focusSearch);
@@ -485,7 +489,10 @@ function bindRichEditors() {
       renderWidgets();
       typesetMath();
     });
-    editor.addEventListener("click", handleObjectSelectionClick);
+    editor.addEventListener("click", (event) => {
+      handleObjectSelectionClick(event);
+      if (event.target.closest("[data-graph-rotate]")) handleGraphRotate(event);
+    });
   });
   activeRichEditor = els.editor;
 }
@@ -730,13 +737,43 @@ function normalizeState(nextState, options = {}) {
   nextState.activeNotebook = nextState.notebooks.includes(nextState.activeNotebook)
     ? nextState.activeNotebook
     : nextState.pages.find((page) => page.id === nextState.activeId)?.notebook || nextState.notebooks[0];
+  upgradeTutorialDemo(nextState);
   return nextState;
+}
+
+function upgradeTutorialDemo(nextState) {
+  const tutorial = nextState.pages.find((page) => page.title === "Start Here - Retro Notebook Tutorial");
+  if (!tutorial) return;
+  let citation = nextState.citations.find((item) => item.title === "Retrieval Practice Produces Memory Benefits");
+  if (!citation) {
+    citation = normalizeCitation({
+      id: uid(),
+      title: "Retrieval Practice Produces Memory Benefits",
+      authors: "Roediger HL; Karpicke JD",
+      year: "2006",
+      journal: "Psychological Science",
+      doi: "10.1111/j.1467-9280.2006.01693.x",
+      url: "https://doi.org/10.1111/j.1467-9280.2006.01693.x",
+      notes: "Demo reference for the citation manager."
+    });
+    nextState.citations.push(citation);
+  }
+  if (!tutorial.content.includes("Citation Manager")) {
+    tutorial.content += `<h2>Citation Manager</h2><p>Numeric citation styles insert linked superscripts. The first mention controls bibliography order<span class="citation-ref numeric" contenteditable="false" data-citation-id="${citation.id}"><a href="#${referenceDomId(citation.id)}">1</a></span>.</p><section class="citation-bibliography"><h1>Citations</h1><ol><li id="${referenceDomId(citation.id)}">${escapeHtml(formatCitation(citation, "vancouver", false))}</li></ol></section>`;
+  }
+  if (!tutorial.content.includes("Print Preview")) {
+    tutorial.content += "<h2>Print Preview</h2><p>Use the print button to preview the selected page with automatic page flow, headers, footers, and page numbers.</p>";
+  }
+  if (!tutorial.content.includes("target=\"_blank\"")) {
+    tutorial.content += '<h2>Hyperlink</h2><p><a href="https://github.com/DanielAU11/RetroNotebook" target="_blank" rel="noopener noreferrer">Open the RetroNotebook repository</a>.</p>';
+  }
 }
 
 function seedState() {
   const now = Date.now();
   const tutorialFolder = uid();
   const firstId = uid();
+  const tutorialCitationId = uid();
   const tutorialChart = {
     title: "Retention Workflow",
     variables: [
@@ -776,9 +813,23 @@ function seedState() {
       { id: uid(), name: "win98", color: "#d9f2d0" }
     ],
     glossaryTerms: defaultGlossaryTerms(),
-    citationStyle: "apa",
+    citationStyle: "vancouver",
     citationCustomFormat: "{authors}. {title}. {journal}. {year}. {doi} {url}",
-    citations: [],
+    citations: [
+      {
+        id: tutorialCitationId,
+        title: "Retrieval Practice Produces Memory Benefits",
+        authors: "Roediger HL; Karpicke JD",
+        year: "2006",
+        journal: "Psychological Science",
+        doi: "10.1111/j.1467-9280.2006.01693.x",
+        url: "https://doi.org/10.1111/j.1467-9280.2006.01693.x",
+        notes: "Demo reference for the citation manager.",
+        pdfName: "",
+        pdfDataUrl: "",
+        pdfBlobId: ""
+      }
+    ],
     latexSnippets: [
       { id: uid(), name: "Mass-energy equivalence", latex: "E = mc^2" },
       { id: uid(), name: "Derivative power rule", latex: "\\frac{d}{dx}x^2 = 2x" },
@@ -798,8 +849,8 @@ function seedState() {
         paperSize: "letter",
         pageSetup: { ...DEFAULT_PAGE_SETUP, header: "Retro Notebook Tutorial", footer: "Local-first study workspace", pageNumberPosition: "bottom-right" },
         content:
-          `<h1>Retro Notebook Tutorial</h1><p>This single notebook is the starter tour. Create colored notebooks from the binder, write rich pages, save equations, insert tables, build editable charts and graphs, capture templates, create flashcards, and type /summary or /card to try smartphrases.</p><h2>Equation</h2><p>Saved equations can be named in the LaTeX tab and inserted from the toolbar dropdown: \\[\\frac{d}{dx}x^2 = 2x\\]</p><h2>Editable Chart</h2><div class="retro-widget chart-widget" contenteditable="false" data-chart="${encodeDataSet(tutorialChart)}"><div class="widget-title"><span class="widget-name">Retention Workflow</span></div><canvas class="chart-canvas"></canvas></div><h2>Editable 3D Graph</h2><div class="retro-widget graph-widget" contenteditable="false" data-graph="${encodeDataSet(tutorialGraph)}"><div class="widget-title"><span class="widget-name">Practice Surface</span></div><canvas class="graph-canvas"></canvas></div><h2>Study Loop</h2><ul><li>Select text and create flashcards.</li><li>Review cards with Again, Hard, Good, and Easy.</li><li>Save reusable page layouts in Templates.</li></ul>`,
-        plain: "Retro Notebook Tutorial. Create colored notebooks, rich pages, equations, charts, 3D graphs, templates, flashcards, and smartphrases.",
+          `<h1>Retro Notebook Tutorial</h1><p>This single notebook is the starter tour. Create colored notebooks from the binder, write rich pages, save equations, insert tables, build editable charts and graphs, capture templates, create flashcards, add hyperlinks, and type /summary or /card to try smartphrases.</p><h2>Equation</h2><p>Saved equations can be named in the LaTeX tab and inserted from the sigma toolbar dropdown: \\[\\frac{d}{dx}x^2 = 2x\\]</p><h2>Tags, Glossary, And Links</h2><p>Use the tag field to type tags separated by commas, insert glossary headings with Heading 3, and add a link like <a href="https://github.com/DanielAU11/RetroNotebook" target="_blank" rel="noopener noreferrer">RetroNotebook on GitHub</a>.</p><h2>Citation Manager</h2><p>Numeric citation styles insert linked superscripts. This demo source jumps to the matching bibliography entry below<span class="citation-ref numeric" contenteditable="false" data-citation-id="${tutorialCitationId}"><a href="#ref-${tutorialCitationId}">1</a></span>.</p><h2>Editable Table</h2><table><tbody><tr><th>Feature</th><th>Where</th></tr><tr><td>Page setup</td><td>Toolbar paper button</td></tr><tr><td>SmartPhrase</td><td>Type / in the page</td></tr></tbody></table><h2>Editable Chart</h2><div class="retro-widget chart-widget" contenteditable="false" data-chart="${encodeDataSet(tutorialChart)}"><div class="widget-title"><span class="widget-name">Retention Workflow</span></div><canvas class="chart-canvas"></canvas></div><h2>Editable 3D Graph</h2><p>Drag the canvas or use the arrow buttons in the graph title to rotate it.</p><div class="retro-widget graph-widget" contenteditable="false" data-graph="${encodeDataSet(tutorialGraph)}"><div class="widget-title"><span class="widget-name">3D Learning Model</span></div><canvas class="graph-canvas"></canvas></div><h2>Study Loop</h2><ul><li>Select text and create flashcards.</li><li>Review cards with Again, Hard, Good, and Easy.</li><li>Save reusable page layouts in Templates.</li><li>Use Print Preview to see automatic page flow, headers, footers, and page numbers.</li></ul><section class="citation-bibliography"><h1>Citations</h1><ol><li id="ref-${tutorialCitationId}">Roediger HL; Karpicke JD. Retrieval Practice Produces Memory Benefits. Psychological Science. 2006. doi:10.1111/j.1467-9280.2006.01693.x</li></ol></section>`,
+        plain: "Retro Notebook Tutorial. Create colored notebooks, rich pages, equations, charts, 3D graphs, templates, citations, hyperlinks, flashcards, and smartphrases.",
         cards: [
           makeCard(
             "What opens the SmartPhrase menu?",
@@ -845,6 +896,7 @@ function renderAll(loadEditor = false) {
   buildReviewQueue();
   renderReview();
   previewLatex();
+  scheduleAutoPagination();
   highlightFindTerm(els.searchInput.value);
 }
 
@@ -881,8 +933,7 @@ function renderBinder() {
       .filter((page) => {
         const haystack = [page.title, page.tags.join(" "), page.plain].join(" ").toLowerCase();
         return !query || haystack.includes(query);
-      })
-      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      });
 
     const title = document.createElement("div");
     title.className = "binder-folder-title";
@@ -940,11 +991,38 @@ function renderTags() {
     chip.type = "button";
     chip.className = "tag-chip" + (page.tags.includes(tag.name) ? " active" : "");
     chip.style.setProperty("--tag-color", tag.color);
-    chip.textContent = tag.name;
-    chip.title = "Click to add/remove this tag on the current page";
-    chip.addEventListener("click", () => togglePageTag(tag.name));
+    chip.innerHTML = `<span>${escapeHtml(tag.name)}</span><span data-delete-tag="${escapeHtml(tag.name)}">x</span>`;
+    chip.title = "Click to add/remove this tag. Click x to delete it.";
+    chip.addEventListener("click", (event) => {
+      const deleteTarget = event.target.closest("[data-delete-tag]");
+      if (deleteTarget) {
+        event.stopPropagation();
+        deleteTag(deleteTarget.dataset.deleteTag);
+        return;
+      }
+      togglePageTag(tag.name);
+    });
     els.tagLibrary.appendChild(chip);
   });
+}
+
+function commitTagInput() {
+  const page = activePage();
+  if (!page) return;
+  const tags = parseTagInput(els.tagInput.value);
+  page.tags = tags;
+  els.tagInput.value = tags.join(", ");
+  ensurePageTagsInLibrary(page);
+  pruneUnusedTags();
+  page.updatedAt = Date.now();
+  saveState();
+  renderBinder();
+  renderTags();
+  renderDashboard();
+}
+
+function parseTagInput(value) {
+  return unique(String(value || "").split(/[,;#\n]+/).map((tag) => tag.trim()).filter(Boolean));
 }
 
 function renderSearchResults() {
@@ -1065,6 +1143,24 @@ function togglePageTag(name) {
   renderDashboard();
 }
 
+function deleteTag(name) {
+  const normalized = normalizeTagName(name);
+  if (!normalized) return;
+  state.tags = state.tags.filter((tag) => tag.name.toLowerCase() !== normalized.toLowerCase());
+  state.pages.forEach((page) => {
+    page.tags = (page.tags || []).filter((tag) => tag.toLowerCase() !== normalized.toLowerCase());
+  });
+  els.tagInput.value = activePage().tags.join(", ");
+  saveState();
+  renderAll(false);
+  setStatus(`Tag "${normalized}" deleted.`);
+}
+
+function pruneUnusedTags() {
+  const used = new Set(state.pages.flatMap((page) => page.tags || []).map((tag) => tag.toLowerCase()));
+  state.tags = state.tags.filter((tag) => used.has(tag.name.toLowerCase()));
+}
+
 function ensurePageTagsInLibrary(page) {
   page.tags.forEach((rawTag) => {
     const name = normalizeTagName(rawTag);
@@ -1126,6 +1222,7 @@ function renderDashboard() {
 function loadActivePageIntoEditor() {
   const page = activePage();
   if (!page) return;
+  els.editor.dataset.pageId = page.id;
   els.pageTitleInput.value = page.title;
   els.tagInput.value = page.tags.join(", ");
   els.documentType.value = page.documentType || "lecture";
@@ -1135,14 +1232,16 @@ function loadActivePageIntoEditor() {
   loadPageSetupControls(page);
   els.editor.innerHTML = page.content || "";
   renderWidgets();
+  scheduleAutoPagination();
   typesetMath();
 }
 
 function renderStats() {
   const page = activePage();
   if (!page) return;
-  const words = (els.editor.innerText || page.plain || "").trim().split(/\s+/).filter(Boolean).length;
-  const chars = (els.editor.innerText || page.plain || "").length;
+  const editorText = els.editor?.dataset.pageId === page.id ? cleanRichText(els.editor) : page.plain || "";
+  const words = editorText.trim().split(/\s+/).filter(Boolean).length;
+  const chars = editorText.length;
   const next = page.cards.filter((card) => card.due).sort((a, b) => a.due - b.due)[0];
   els.wordCount.textContent = String(words);
   els.charCount.textContent = String(chars);
@@ -2230,6 +2329,7 @@ function updateActivePaperSize() {
   applyPaperSize(page.paperSize);
   saveState();
   renderWidgets();
+  scheduleAutoPagination();
   renderStats();
   setStatus(`Paper size set to ${PAPER_SIZES[page.paperSize].label}.`);
 }
@@ -2263,6 +2363,106 @@ function applyPageSetup() {
   saveState();
   setStatus("Page setup saved.");
   if (!els.printPreviewOverlay.hidden) renderPrintPreview();
+}
+
+function openPageSetupDialog() {
+  const page = activePage();
+  if (!page) return Promise.resolve(null);
+  const setup = normalizePageSetup(page.pageSetup);
+  return new Promise((resolve) => {
+    dialogResolve = resolve;
+    els.dialogTitle.textContent = "Page Setup";
+    els.dialogMessage.textContent = "Headers, footers, and page numbers for the selected page.";
+    els.dialogIcon.className = "icon95 FileText_32x32_4";
+    const dialog = els.modalOverlay.querySelector(".retro-dialog");
+    dialog.classList.add("has-fields");
+    dialog.classList.remove("has-multiline", "has-data");
+    els.dialogFields.innerHTML = `
+      <fieldset>
+        <legend>Header And Footer</legend>
+        <div class="field-row-stacked">
+          <label>Header text</label>
+          <input data-page-header value="${escapeHtml(setup.header)}" placeholder="Essay title, course, author..." />
+        </div>
+        <div class="field-row-stacked">
+          <label>Footer text</label>
+          <input data-page-footer value="${escapeHtml(setup.footer)}" placeholder="Draft note, institution, honor code..." />
+        </div>
+        <div class="profile-grid">
+          <label>Header position</label>
+          <select data-header-align>
+            ${["left", "center", "right"].map((value) => `<option value="${value}" ${setup.headerAlign === value ? "selected" : ""}>${value === "center" ? "Middle" : value === "left" ? "Left" : "Right"}</option>`).join("")}
+          </select>
+          <label>Footer position</label>
+          <select data-footer-align>
+            ${["left", "center", "right"].map((value) => `<option value="${value}" ${setup.footerAlign === value ? "selected" : ""}>${value === "center" ? "Middle" : value === "left" ? "Left" : "Right"}</option>`).join("")}
+          </select>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Page Numbers</legend>
+        <select data-page-number-position>
+          ${[
+            ["none", "No page numbers"],
+            ["top-left", "Top left"],
+            ["top-center", "Top middle"],
+            ["top-right", "Top right"],
+            ["bottom-left", "Bottom left"],
+            ["bottom-center", "Bottom middle"],
+            ["bottom-right", "Bottom right"]
+          ].map(([value, label]) => `<option value="${value}" ${setup.pageNumberPosition === value ? "selected" : ""}>${label}</option>`).join("")}
+        </select>
+        <label class="inline-check"><input data-page-number-total type="checkbox" ${setup.pageNumberTotal ? "checked" : ""} /> Include total pages</label>
+      </fieldset>
+    `;
+    const readDialogSetup = () => normalizePageSetup({
+      header: els.dialogFields.querySelector("[data-page-header]").value,
+      footer: els.dialogFields.querySelector("[data-page-footer]").value,
+      headerAlign: els.dialogFields.querySelector("[data-header-align]").value,
+      footerAlign: els.dialogFields.querySelector("[data-footer-align]").value,
+      pageNumberPosition: els.dialogFields.querySelector("[data-page-number-position]").value,
+      pageNumberTotal: els.dialogFields.querySelector("[data-page-number-total]").checked
+    });
+    const saveDialogSetup = () => {
+      page.pageSetup = readDialogSetup();
+      loadPageSetupControls(page);
+      page.updatedAt = Date.now();
+      saveState();
+      if (!els.printPreviewOverlay.hidden) renderPrintPreview();
+      return page.pageSetup;
+    };
+    els.dialogButtons.innerHTML = "";
+    const apply = document.createElement("button");
+    apply.textContent = "Apply";
+    apply.addEventListener("click", () => {
+      saveDialogSetup();
+      setStatus("Page setup saved.");
+      closeRetroDialog(true);
+    });
+    const preview = document.createElement("button");
+    preview.textContent = "Preview";
+    preview.addEventListener("click", () => {
+      saveDialogSetup();
+      closeRetroDialog(true);
+      openPrintPreview();
+    });
+    const clearHeader = document.createElement("button");
+    clearHeader.textContent = "Clear Header";
+    clearHeader.addEventListener("click", () => {
+      els.dialogFields.querySelector("[data-page-header]").value = "";
+    });
+    const clearFooter = document.createElement("button");
+    clearFooter.textContent = "Clear Footer";
+    clearFooter.addEventListener("click", () => {
+      els.dialogFields.querySelector("[data-page-footer]").value = "";
+    });
+    const cancel = document.createElement("button");
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => closeRetroDialog(null));
+    els.dialogButtons.append(apply, preview, clearHeader, clearFooter, cancel);
+    els.modalOverlay.hidden = false;
+    setTimeout(() => els.dialogFields.querySelector("[data-page-header]")?.focus(), 0);
+  });
 }
 
 function insertManualPageBreak() {
@@ -2319,12 +2519,15 @@ function printActivePage() {
 function renderPrintPreview() {
   const page = activePage();
   if (!page || !els.printPreviewPages) return;
+  if (els.editor.dataset.pageId !== page.id) loadActivePageIntoEditor();
   syncEditorNow();
   applyPaperSize(page.paperSize);
   renderWidgets();
   els.printPreviewPages.innerHTML = "";
   const setup = normalizePageSetup(page.pageSetup);
-  const sourceNodes = [...els.editor.childNodes].map(cloneNodeForPrint);
+  const sourceNodes = [...els.editor.childNodes]
+    .filter((node) => !(node.nodeType === Node.ELEMENT_NODE && node.classList.contains("auto-page-break")))
+    .map(cloneNodeForPrint);
   if (!sourceNodes.length) sourceNodes.push(document.createElement("p"));
   const pages = [];
   let previewPage = createPreviewPage(pages.length + 1, setup);
@@ -2354,7 +2557,7 @@ function renderPrintPreview() {
 function cloneNodeForPrint(node) {
   const clone = node.cloneNode(true);
   if (node.nodeType !== Node.ELEMENT_NODE) return clone;
-  clone.querySelectorAll?.(".widget-actions").forEach((actions) => actions.remove());
+  clone.querySelectorAll?.(".widget-actions, .graph-rotate-actions, .auto-page-break").forEach((actions) => actions.remove());
   const sourceCanvases = node.matches?.("canvas") ? [node] : [...node.querySelectorAll("canvas")];
   const cloneCanvases = clone.matches?.("canvas") ? [clone] : [...clone.querySelectorAll("canvas")];
   sourceCanvases.forEach((canvas, index) => {
@@ -2566,7 +2769,7 @@ function menuActions() {
     selectAll: () => document.execCommand("selectAll"),
     find: focusSearch,
     overview: () => switchMainTab("dashboard"),
-    pageSetup: () => switchMainTab("pageSetup"),
+    pageSetup: openPageSetupDialog,
     latex: () => switchMainTab("latex"),
     templates: () => switchMainTab("insert"),
     phrases: () => switchMainTab("phrases"),
@@ -2895,7 +3098,7 @@ function insertSelectedCitation() {
     setStatus("Save or select a citation first.");
     return;
   }
-  insertHtml(`<span class="citation-ref" contenteditable="false" data-citation-id="${escapeHtml(citation.id)}">[?]</span>&nbsp;`);
+  insertHtml(citationRefHtml(citation, "?") + "&nbsp;");
   renumberCitations();
   renderCitationManager();
   setStatus("Citation inserted and reordered.");
@@ -2908,7 +3111,7 @@ function insertOrUpdateBibliography() {
     return;
   }
   els.editor.querySelector(".citation-bibliography")?.remove();
-  const entries = ordered.map((citation) => `<li>${escapeHtml(formatCitation(citation, state.citationStyle, false))}</li>`).join("");
+  const entries = ordered.map((citation) => `<li id="${referenceDomId(citation.id)}">${escapeHtml(formatCitation(citation, state.citationStyle, false))}</li>`).join("");
   els.editor.insertAdjacentHTML("beforeend", `<section class="citation-bibliography"><h1>Citations</h1><ol>${entries}</ol></section>`);
   syncEditorNow();
   renderCitationManager();
@@ -2920,12 +3123,13 @@ function renumberCitations() {
   els.editor.querySelectorAll(".citation-ref[data-citation-id]").forEach((node) => {
     const citation = state.citations.find((item) => item.id === node.dataset.citationId);
     const index = order.indexOf(node.dataset.citationId);
-    node.textContent = citationInlineText(citation, index + 1);
+    node.classList.toggle("numeric", usesNumericCitations());
+    node.innerHTML = citationInlineHtml(citation, index + 1);
     node.title = citation ? formatCitation(citation, state.citationStyle, true) : "Missing citation";
   });
   const bibliography = els.editor.querySelector(".citation-bibliography");
   if (bibliography?.querySelector("ol")) {
-    const entries = citationOrderForPage().map((citation) => `<li>${escapeHtml(formatCitation(citation, state.citationStyle, false))}</li>`).join("");
+    const entries = citationOrderForPage().map((citation) => `<li id="${referenceDomId(citation.id)}">${escapeHtml(formatCitation(citation, state.citationStyle, false))}</li>`).join("");
     bibliography.querySelector("ol").innerHTML = entries;
   }
   syncEditorNow();
@@ -2948,6 +3152,25 @@ function citationInlineText(citation, index) {
     return `(${firstAuthorLastName(citation.authors) || "Source"}, ${citation.year || "n.d."})`;
   }
   return `[${index || "?"}]`;
+}
+
+function citationRefHtml(citation, index) {
+  const numericClass = usesNumericCitations() ? " numeric" : "";
+  return `<span class="citation-ref${numericClass}" contenteditable="false" data-citation-id="${escapeHtml(citation.id)}">${citationInlineHtml(citation, index)}</span>`;
+}
+
+function citationInlineHtml(citation, index) {
+  if (!citation) return "[?]";
+  if (!usesNumericCitations()) return escapeHtml(citationInlineText(citation, index));
+  return `<a href="#${referenceDomId(citation.id)}">${escapeHtml(index || "?")}</a>`;
+}
+
+function usesNumericCitations() {
+  return state.citationStyle === "vancouver" || state.citationStyle === "ama";
+}
+
+function referenceDomId(id) {
+  return `ref-${String(id || "missing").replace(/[^a-z0-9_-]/gi, "-")}`;
 }
 
 function formatCitation(citation, style = "apa", compact = false) {
@@ -3408,16 +3631,80 @@ function makeBlankPage(notebook, folderId) {
 }
 
 function syncEditorNow() {
-  const page = activePage();
+  const page = loadedEditorPage();
   if (!page || !els.editor) return;
   clearFindMarks();
-  page.content = els.editor.innerHTML;
-  page.plain = els.editor.innerText;
+  page.content = cleanRichHtml(els.editor);
+  page.plain = cleanRichText(els.editor);
   page.paperSize = paperSizeKey(els.paperSizeSelect?.value || page.paperSize);
-  if (els.pageHeaderInput) page.pageSetup = readPageSetupControls();
+  if (els.pageHeaderInput && page.id === activePage()?.id) page.pageSetup = readPageSetupControls();
   page.updatedAt = Date.now();
   saveState();
   renderStats();
+}
+
+function loadedEditorPage() {
+  const loadedId = els.editor?.dataset.pageId;
+  return state.pages.find((page) => page.id === loadedId) || activePage();
+}
+
+function cleanRichHtml(root) {
+  const clone = root.cloneNode(true);
+  removeTransientEditorNodes(clone);
+  return clone.innerHTML;
+}
+
+function cleanRichText(root) {
+  const clone = root.cloneNode(true);
+  removeTransientEditorNodes(clone);
+  return clone.innerText || clone.textContent || "";
+}
+
+function removeTransientEditorNodes(root) {
+  root.querySelectorAll?.(".auto-page-break, mark.find-mark").forEach((node) => {
+    if (node.matches?.("mark.find-mark")) {
+      node.replaceWith(document.createTextNode(node.textContent));
+    } else {
+      node.remove();
+    }
+  });
+}
+
+function scheduleAutoPagination() {
+  if (!els.editor || !document.body.contains(els.editor)) return;
+  cancelAnimationFrame(paginationFrame);
+  paginationFrame = requestAnimationFrame(paginateEditor);
+}
+
+function paginateEditor() {
+  if (!els.editor || paginatingEditor) return;
+  paginatingEditor = true;
+  try {
+    els.editor.querySelectorAll(".auto-page-break").forEach((node) => node.remove());
+    const style = getComputedStyle(document.documentElement);
+    const pageHeight = cssLengthToPixels(style.getPropertyValue("--paper-height")) || 1056;
+    const padY = cssLengthToPixels(style.getPropertyValue("--paper-padding-y")) || 52;
+    const usablePageHeight = Math.max(160, pageHeight - padY);
+    let nextBreakAt = usablePageHeight;
+    const children = [...els.editor.children].filter((child) => !child.classList.contains("auto-page-break"));
+    children.forEach((child) => {
+      if (child.classList.contains("manual-page-break")) {
+        nextBreakAt = child.offsetTop + child.offsetHeight + usablePageHeight;
+        return;
+      }
+      if (child === els.editor.firstElementChild) return;
+      const bottom = child.offsetTop + child.offsetHeight;
+      if (bottom <= nextBreakAt || child.offsetHeight > usablePageHeight * 0.92) return;
+      const marker = document.createElement("div");
+      marker.className = "auto-page-break";
+      marker.contentEditable = "false";
+      marker.textContent = "Page Break";
+      child.before(marker);
+      nextBreakAt = marker.offsetTop + marker.offsetHeight + usablePageHeight;
+    });
+  } finally {
+    paginatingEditor = false;
+  }
 }
 
 function dueCards() {
@@ -3439,14 +3726,22 @@ function ensureWidgetControls(widget) {
   const title = widget.querySelector(".widget-title");
   if (!title) return;
   const hadActions = title.querySelector(".widget-actions");
+  const hadRotation = title.querySelector(".graph-rotate-actions");
+  let isRotatableGraph = false;
   if (widget.classList.contains("chart-widget") || widget.classList.contains("graph-widget")) {
     const data = widget.classList.contains("chart-widget")
       ? decodeDataSet(widget.dataset.chart, "chart")
       : decodeDataSet(widget.dataset.graph, "graph");
+    isRotatableGraph = widget.classList.contains("graph-widget") && is3DGraphData(data);
     title.innerHTML = dataWidgetTitleInnerHtml(data);
+    if (hadRotation && isRotatableGraph) title.appendChild(hadRotation);
     if (hadActions) title.appendChild(hadActions);
   }
   if (!title.querySelector(".widget-actions")) title.insertAdjacentHTML("beforeend", widgetActions(!widget.classList.contains("draw-widget")));
+  if (isRotatableGraph && !title.querySelector(".graph-rotate-actions")) {
+    const actions = title.querySelector(".widget-actions");
+    actions.insertAdjacentHTML("beforebegin", graphRotateActions());
+  }
 }
 
 function widgetActions(canEdit = true) {
@@ -3459,6 +3754,18 @@ function dataWidgetTitleHtml(data) {
 
 function dataWidgetTitleInnerHtml(data) {
   return `<span class="widget-name">${escapeHtml(data.title)}</span>`;
+}
+
+function graphRotateActions() {
+  return `
+    <span class="graph-rotate-actions" aria-label="3D graph rotation">
+      <button type="button" data-graph-rotate="left" title="Rotate left">◄</button>
+      <button type="button" data-graph-rotate="right" title="Rotate right">►</button>
+      <button type="button" data-graph-rotate="up" title="Tilt up">▲</button>
+      <button type="button" data-graph-rotate="down" title="Tilt down">▼</button>
+      <button type="button" data-graph-rotate="reset" title="Reset view">0</button>
+    </span>
+  `;
 }
 
 async function handleWidgetAction(event) {
@@ -3482,6 +3789,27 @@ async function handleWidgetAction(event) {
   }
 
   await editDataObject(widget);
+}
+
+function handleGraphRotate(event) {
+  const button = event.target.closest("[data-graph-rotate]");
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const widget = button.closest(".graph-widget");
+  if (!widget) return;
+  const current = graphRotation(widget);
+  const step = 0.22;
+  const action = button.dataset.graphRotate;
+  const next = action === "reset"
+    ? { yaw: 0.75, pitch: -0.25 }
+    : {
+        yaw: current.yaw + (action === "left" ? -step : action === "right" ? step : 0),
+        pitch: clamp(current.pitch + (action === "up" ? -step : action === "down" ? step : 0), -0.85, 0.85)
+      };
+  widget.dataset.rotation = JSON.stringify(next);
+  renderGraphWidget(widget, false);
+  syncRichEditor(objectOwner(widget));
 }
 
 async function editDataObject(widget) {
@@ -3763,14 +4091,35 @@ function ensureGraphInteraction(widget, canvas) {
   if (canvas.dataset.rotatable) return;
   let start = null;
   let activePointerId = null;
+  const updateRotationFromPointer = (clientX, clientY) => {
+    if (!start) return;
+    const yaw = start.rotation.yaw + (clientX - start.x) * 0.012;
+    const pitch = clamp(start.rotation.pitch + (clientY - start.y) * 0.008, -0.85, 0.85);
+    widget.dataset.rotation = JSON.stringify({ yaw, pitch });
+    renderGraphWidget(widget, false);
+  };
+  const beginDrag = (event, id) => {
+    if (!is3DGraphData(decodeDataSet(widget.dataset.graph, "graph"))) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    activePointerId = id;
+    start = { x: event.clientX, y: event.clientY, rotation: graphRotation(widget) };
+    selectObject(widget);
+    document.body.classList.add("dragging-graph");
+    return true;
+  };
+  const finishDrag = () => {
+    document.body.classList.remove("dragging-graph");
+    start = null;
+    activePointerId = null;
+    const owner = widget.closest("#editor, #templateEditor, #phraseExpansionEditor, #cardFront, #cardBack") || els.editor;
+    syncRichEditor(owner);
+  };
   const move = (event) => {
     if (!start || event.pointerId !== activePointerId) return;
     event.preventDefault();
     event.stopPropagation();
-    const yaw = start.rotation.yaw + (event.clientX - start.x) * 0.012;
-    const pitch = clamp(start.rotation.pitch + (event.clientY - start.y) * 0.008, -0.85, 0.85);
-    widget.dataset.rotation = JSON.stringify({ yaw, pitch });
-    renderGraphWidget(widget, false);
+    updateRotationFromPointer(event.clientX, event.clientY);
   };
   const end = (event) => {
     if (!start || event.pointerId !== activePointerId) return;
@@ -3779,25 +4128,35 @@ function ensureGraphInteraction(widget, canvas) {
     document.removeEventListener("pointermove", move, true);
     document.removeEventListener("pointerup", end, true);
     document.removeEventListener("pointercancel", end, true);
-    document.body.classList.remove("dragging-graph");
-    start = null;
-    activePointerId = null;
-    const owner = widget.closest("#editor, #templateEditor, #phraseExpansionEditor, #cardFront, #cardBack") || els.editor;
-    syncRichEditor(owner);
+    finishDrag();
   };
   const begin = (event) => {
-    if (!is3DGraphData(decodeDataSet(widget.dataset.graph, "graph"))) return;
-    event.preventDefault();
-    event.stopPropagation();
-    activePointerId = event.pointerId;
-    start = { x: event.clientX, y: event.clientY, rotation: graphRotation(widget) };
-    selectObject(widget);
-    document.body.classList.add("dragging-graph");
+    if (!beginDrag(event, event.pointerId)) return;
     document.addEventListener("pointermove", move, true);
     document.addEventListener("pointerup", end, true);
     document.addEventListener("pointercancel", end, true);
   };
+  const mouseMove = (event) => {
+    if (!start || activePointerId !== "mouse") return;
+    event.preventDefault();
+    event.stopPropagation();
+    updateRotationFromPointer(event.clientX, event.clientY);
+  };
+  const mouseEnd = (event) => {
+    if (!start || activePointerId !== "mouse") return;
+    event.preventDefault();
+    event.stopPropagation();
+    document.removeEventListener("mousemove", mouseMove, true);
+    document.removeEventListener("mouseup", mouseEnd, true);
+    finishDrag();
+  };
+  const mouseBegin = (event) => {
+    if (event.button !== 0 || !beginDrag(event, "mouse")) return;
+    document.addEventListener("mousemove", mouseMove, true);
+    document.addEventListener("mouseup", mouseEnd, true);
+  };
   canvas.addEventListener("pointerdown", begin, true);
+  canvas.addEventListener("mousedown", mouseBegin, true);
   canvas.title = "Drag to rotate 3D graph";
   canvas.style.touchAction = "none";
   canvas.addEventListener("dragstart", (event) => event.preventDefault());
