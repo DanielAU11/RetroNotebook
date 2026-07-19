@@ -693,6 +693,7 @@ function normalizeState(nextState, options = {}) {
       paperSize: paperSizeKey(page.paperSize),
       pageSetup: normalizePageSetup(page.pageSetup),
       favorite: Boolean(page.favorite),
+      content: stripStoredPageBreaks(page.content || ""),
       plain: page.plain || "",
       cards: Array.isArray(page.cards)
         ? page.cards.map((card) => ({
@@ -2468,7 +2469,7 @@ function openPageSetupDialog() {
 function insertManualPageBreak() {
   const target = currentRichEditor();
   if (target !== els.editor) {
-    insertHtml('<div class="manual-page-break" contenteditable="false">Page Break</div><p></p>');
+    insertHtml('<div class="manual-page-break" contenteditable="false" aria-label="Manual page break"></div><p></p>');
     return;
   }
   const selection = window.getSelection();
@@ -2477,7 +2478,7 @@ function insertManualPageBreak() {
   const marker = document.createElement("div");
   marker.className = "manual-page-break";
   marker.contentEditable = "false";
-  marker.textContent = "Page Break";
+  marker.setAttribute("aria-label", "Manual page break");
   const paragraph = document.createElement("p");
   paragraph.innerHTML = "<br>";
   if (block && block !== els.editor && els.editor.contains(block)) {
@@ -2526,7 +2527,7 @@ function renderPrintPreview() {
   els.printPreviewPages.innerHTML = "";
   const setup = normalizePageSetup(page.pageSetup);
   const sourceNodes = [...els.editor.childNodes]
-    .filter((node) => !(node.nodeType === Node.ELEMENT_NODE && node.classList.contains("auto-page-break")))
+    .filter((node) => !(node.nodeType === Node.ELEMENT_NODE && (node.classList.contains("auto-page-break") || node.classList.contains("manual-page-break"))))
     .map(cloneNodeForPrint);
   if (!sourceNodes.length) sourceNodes.push(document.createElement("p"));
   const pages = [];
@@ -2534,12 +2535,6 @@ function renderPrintPreview() {
   pages.push(previewPage);
   els.printPreviewPages.appendChild(previewPage.shell);
   sourceNodes.forEach((node) => {
-    if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains("manual-page-break")) {
-      previewPage = createPreviewPage(pages.length + 1, setup);
-      pages.push(previewPage);
-      els.printPreviewPages.appendChild(previewPage.shell);
-      return;
-    }
     previewPage.body.appendChild(node);
     if (previewPage.body.scrollHeight > previewPage.body.clientHeight + 4 && previewPage.body.childNodes.length > 1) {
       previewPage.body.removeChild(node);
@@ -3661,13 +3656,24 @@ function cleanRichText(root) {
 }
 
 function removeTransientEditorNodes(root) {
-  root.querySelectorAll?.(".auto-page-break, mark.find-mark").forEach((node) => {
+  root.querySelectorAll?.(".auto-page-break, .manual-page-break, mark.find-mark").forEach((node) => {
     if (node.matches?.("mark.find-mark")) {
       node.replaceWith(document.createTextNode(node.textContent));
     } else {
       node.remove();
     }
   });
+}
+
+function stripStoredPageBreaks(html) {
+  const template = document.createElement("template");
+  template.innerHTML = String(html || "");
+  template.content.querySelectorAll(".manual-page-break, .auto-page-break").forEach((marker) => {
+    const next = marker.nextElementSibling;
+    marker.remove();
+    if (next?.tagName === "P" && !next.textContent.trim() && next.innerHTML.replace(/<br\s*\/?>/gi, "").trim() === "") next.remove();
+  });
+  return template.innerHTML;
 }
 
 function scheduleAutoPagination() {
@@ -3688,17 +3694,13 @@ function paginateEditor() {
     let nextBreakAt = usablePageHeight;
     const children = [...els.editor.children].filter((child) => !child.classList.contains("auto-page-break"));
     children.forEach((child) => {
-      if (child.classList.contains("manual-page-break")) {
-        nextBreakAt = child.offsetTop + child.offsetHeight + usablePageHeight;
-        return;
-      }
       if (child === els.editor.firstElementChild) return;
       const bottom = child.offsetTop + child.offsetHeight;
       if (bottom <= nextBreakAt || child.offsetHeight > usablePageHeight * 0.92) return;
       const marker = document.createElement("div");
       marker.className = "auto-page-break";
       marker.contentEditable = "false";
-      marker.textContent = "Page Break";
+      marker.setAttribute("aria-label", "Automatic page break");
       child.before(marker);
       nextBreakAt = marker.offsetTop + marker.offsetHeight + usablePageHeight;
     });

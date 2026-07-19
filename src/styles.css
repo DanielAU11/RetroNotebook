@@ -943,10 +943,10 @@ button {
 .auto-page-break {
   display: grid;
   place-items: center;
-  height: 34px;
+  height: var(--paper-sheet-gap);
   margin: 18px calc(var(--paper-padding-x) * -1);
-  color: #000080;
-  font: 11px "MS Sans Serif", Arial, sans-serif;
+  color: transparent;
+  font-size: 0;
   background: var(--app-gray);
   border-top: 1px solid #808080;
   border-bottom: 1px solid #fff;
@@ -956,8 +956,7 @@ button {
 }
 
 .auto-page-break {
-  color: #333;
-  font-style: italic;
+  color: transparent;
 }
 
 .editor-page .tag-list-line {
@@ -1525,7 +1524,7 @@ table.selected-object {
   position: relative;
   width: var(--paper-width);
   height: var(--paper-height);
-  padding: calc(var(--paper-padding-y) + 0.28in) var(--paper-padding-x) calc(var(--paper-padding-y) + 0.35in);
+  padding: var(--paper-padding-y) var(--paper-padding-x);
   overflow: hidden;
   background: #fff;
   color: #111;
@@ -1538,6 +1537,18 @@ table.selected-object {
 .print-body {
   height: 100%;
   overflow: hidden;
+}
+
+.print-body h1,
+.print-body h2,
+.print-body h3 {
+  margin-top: 0;
+  font-family: Arial, sans-serif;
+  line-height: 1.2;
+}
+
+.print-body > :first-child {
+  margin-top: 0 !important;
 }
 
 .print-body .widget-actions,
