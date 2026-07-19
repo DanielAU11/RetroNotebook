@@ -636,6 +636,7 @@ button {
 .button-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -929,6 +930,72 @@ button {
   padding: 6px 12px;
   border-left: 4px solid var(--blue);
   background: #eef4fa;
+}
+
+.editor-page ul,
+.editor-page ol,
+.template-editor ul,
+.template-editor ol,
+.card-editor ul,
+.card-editor ol {
+  padding-left: 1.35em;
+}
+
+.editor-page ul.align-center,
+.editor-page ol.align-center,
+.template-editor ul.align-center,
+.template-editor ol.align-center,
+.card-editor ul.align-center,
+.card-editor ol.align-center,
+.editor-page ul.align-right,
+.editor-page ol.align-right,
+.template-editor ul.align-right,
+.template-editor ol.align-right,
+.card-editor ul.align-right,
+.card-editor ol.align-right {
+  list-style-position: inside;
+  padding-left: 0;
+}
+
+.editor-page ul.align-center,
+.editor-page ol.align-center,
+.template-editor ul.align-center,
+.template-editor ol.align-center,
+.card-editor ul.align-center,
+.card-editor ol.align-center {
+  text-align: center;
+}
+
+.editor-page ul.align-right,
+.editor-page ol.align-right,
+.template-editor ul.align-right,
+.template-editor ol.align-right,
+.card-editor ul.align-right,
+.card-editor ol.align-right {
+  text-align: right;
+}
+
+.checklist-list {
+  list-style: none;
+}
+
+.checklist-list li {
+  min-height: 1.45em;
+}
+
+.checklist-list input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin: 0 6px 0 0;
+  vertical-align: -2px;
+}
+
+.checklist-list.align-center li {
+  text-align: center;
+}
+
+.checklist-list.align-right li {
+  text-align: right;
 }
 
 .editor-page .page-divider {
@@ -1748,6 +1815,10 @@ fieldset {
   width: min(420px, calc(100vw - 32px));
 }
 
+.retro-dialog.page-setup-dialog {
+  width: min(470px, calc(100vw - 32px));
+}
+
 .retro-dialog.has-multiline {
   width: min(520px, calc(100vw - 32px));
 }
@@ -1866,12 +1937,23 @@ fieldset {
 .dialog-buttons {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 14px;
 }
 
 .dialog-buttons button {
   min-width: 76px;
+  max-width: 100%;
+}
+
+.page-setup-dialog .dialog-buttons {
+  gap: 6px;
+}
+
+.page-setup-dialog .dialog-buttons button {
+  min-width: 72px;
+  white-space: normal;
 }
 
 .context-menu {

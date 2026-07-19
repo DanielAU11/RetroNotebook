@@ -1502,8 +1502,26 @@ async function deleteFolderById(id) {
 function exec(command, value = null) {
   const target = currentRichEditor();
   target.focus();
+  if (["justifyLeft", "justifyCenter", "justifyRight"].includes(command) && applyListAwareAlignment(command, target)) {
+    syncRichEditor(target);
+    return;
+  }
   document.execCommand(command, false, value);
   syncRichEditor(target);
+}
+
+function applyListAwareAlignment(command, target) {
+  const selection = window.getSelection();
+  if (!selection.rangeCount) return false;
+  const anchor = selection.anchorNode?.nodeType === Node.TEXT_NODE ? selection.anchorNode.parentElement : selection.anchorNode;
+  const list = anchor?.closest?.("ul, ol");
+  if (!list || !target.contains(list)) return false;
+  list.classList.remove("align-left", "align-center", "align-right");
+  list.classList.add(command === "justifyCenter" ? "align-center" : command === "justifyRight" ? "align-right" : "align-left");
+  [...list.querySelectorAll("li")].forEach((item) => {
+    item.style.textAlign = command === "justifyCenter" ? "center" : command === "justifyRight" ? "right" : "left";
+  });
+  return true;
 }
 
 function applyTextColor() {
@@ -1666,6 +1684,10 @@ function speakSelection() {
 function execCardCommand(command) {
   const target = focusedCardEditor || els.cardFront;
   target.focus();
+  if (["justifyLeft", "justifyCenter", "justifyRight"].includes(command) && applyListAwareAlignment(command, target)) {
+    syncRichEditor(target);
+    return;
+  }
   document.execCommand(command, false, null);
   syncRichEditor(target);
 }
@@ -1771,7 +1793,7 @@ function insertDivider() {
 }
 
 function insertTasks() {
-  insertHtml("<ul><li><input type=\"checkbox\" /> Task</li><li><input type=\"checkbox\" /> Evidence</li><li><input type=\"checkbox\" /> Review</li></ul>");
+  insertHtml('<ul class="checklist-list"><li><input type="checkbox" contenteditable="false" /> <br></li><li><input type="checkbox" contenteditable="false" /> <br></li><li><input type="checkbox" contenteditable="false" /> <br></li></ul><p><br></p>');
 }
 
 function insertTemplate(type) {
@@ -2376,7 +2398,7 @@ function openPageSetupDialog() {
     els.dialogMessage.textContent = "Headers, footers, and page numbers for the selected page.";
     els.dialogIcon.className = "icon95 FileText_32x32_4";
     const dialog = els.modalOverlay.querySelector(".retro-dialog");
-    dialog.classList.add("has-fields");
+    dialog.classList.add("has-fields", "page-setup-dialog");
     dialog.classList.remove("has-multiline", "has-data");
     els.dialogFields.innerHTML = `
       <fieldset>
@@ -3404,6 +3426,7 @@ function updatePhraseMenu() {
 }
 
 function handleEditorKeydown(event) {
+  if ((event.key === "Backspace" || event.key === "Delete") && handleChecklistDeleteKey(event)) return;
   if (els.phraseMenu.hidden) return;
   if (event.key === "Escape") {
     hidePhraseMenu();
@@ -3416,6 +3439,39 @@ function handleEditorKeydown(event) {
       first.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     }
   }
+}
+
+function handleChecklistDeleteKey(event) {
+  const selection = window.getSelection();
+  if (!selection.rangeCount || !selection.isCollapsed) return false;
+  const anchor = selection.anchorNode?.nodeType === Node.TEXT_NODE ? selection.anchorNode.parentElement : selection.anchorNode;
+  const item = anchor?.closest?.(".checklist-list li");
+  if (!item || !els.editor.contains(item)) return false;
+  const text = item.textContent.replace(/\u00a0/g, " ").trim();
+  if (text) return false;
+  const list = item.closest(".checklist-list");
+  event.preventDefault();
+  const nextFocus = item.nextElementSibling || item.previousElementSibling;
+  item.remove();
+  if (!list.children.length) {
+    const paragraph = document.createElement("p");
+    paragraph.innerHTML = "<br>";
+    list.replaceWith(paragraph);
+    placeCaretAtEnd(paragraph);
+  } else if (nextFocus) {
+    placeCaretAtEnd(nextFocus);
+  }
+  syncEditorNow();
+  return true;
+}
+
+function placeCaretAtEnd(node) {
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  range.collapse(false);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 function slashContext() {
@@ -4946,6 +5002,7 @@ function openRetroDialog({ title, message, icon, fields = [], buttons }) {
 function closeRetroDialog(value) {
   if (!dialogResolve) return;
   els.modalOverlay.hidden = true;
+  els.modalOverlay.querySelector(".retro-dialog")?.classList.remove("page-setup-dialog");
   const resolve = dialogResolve;
   dialogResolve = null;
   resolve(value);
