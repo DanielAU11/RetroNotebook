@@ -109,7 +109,6 @@ function bindElements() {
     "pageTitleInput",
     "tagInput",
     "editor",
-    "pageGuides",
     "styleSelect",
     "fontSelect",
     "fontSizeSelect",
@@ -329,13 +328,11 @@ function bindEvents() {
     queueSave();
     renderStats();
     renderDashboard();
-    renderPageGuides();
     if (document.querySelector("#citationsPanel.active")) renderCitationManager();
     updatePhraseMenu();
   });
   els.editor.addEventListener("keyup", updatePhraseMenu);
   els.editor.addEventListener("keydown", handleEditorKeydown);
-  els.editor.addEventListener("scroll", renderPageGuides);
 
   els.editor.addEventListener("click", (event) => {
     handleObjectSelectionClick(event);
@@ -885,7 +882,7 @@ function renderBinder() {
         const haystack = [page.title, page.tags.join(" "), page.plain].join(" ").toLowerCase();
         return !query || haystack.includes(query);
       })
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 
     const title = document.createElement("div");
     title.className = "binder-folder-title";
@@ -1139,7 +1136,6 @@ function loadActivePageIntoEditor() {
   els.editor.innerHTML = page.content || "";
   renderWidgets();
   typesetMath();
-  renderPageGuides();
 }
 
 function renderStats() {
@@ -1156,7 +1152,6 @@ function renderStats() {
   const pages = estimateEditorPageCount();
   els.countText.textContent = `${words} words / ${chars} chars / ${pages} page${pages === 1 ? "" : "s"}`;
   updatePageBreakInfo(pages);
-  renderPageGuides();
 }
 
 function renderDueCards() {
@@ -2236,29 +2231,7 @@ function updateActivePaperSize() {
   saveState();
   renderWidgets();
   renderStats();
-  renderPageGuides();
   setStatus(`Paper size set to ${PAPER_SIZES[page.paperSize].label}.`);
-}
-
-function renderPageGuides() {
-  if (!els.pageGuides || !els.editor) return;
-  const editorRect = els.editor.getBoundingClientRect();
-  const bodyRect = els.editor.parentElement.getBoundingClientRect();
-  const pageHeight = cssLengthToPixels(getComputedStyle(document.documentElement).getPropertyValue("--paper-height")) || 1056;
-  const total = Math.max(1, Math.ceil(els.editor.scrollHeight / pageHeight));
-  els.pageGuides.innerHTML = "";
-  if (total < 2) return;
-  for (let pageIndex = 1; pageIndex < total; pageIndex += 1) {
-    const top = editorRect.top - bodyRect.top + pageHeight * pageIndex - els.editor.scrollTop;
-    if (top < 32 || top > bodyRect.height - 8) continue;
-    const guide = document.createElement("div");
-    guide.className = "page-guide";
-    guide.style.left = `${editorRect.right - bodyRect.left - 64}px`;
-    guide.style.width = "58px";
-    guide.style.top = `${top}px`;
-    guide.textContent = `Page ${pageIndex + 1}`;
-    els.pageGuides.appendChild(guide);
-  }
 }
 
 function loadPageSetupControls(page) {
@@ -2314,7 +2287,6 @@ function insertManualPageBreak() {
     els.editor.append(marker, paragraph);
   }
   syncEditorNow();
-  renderPageGuides();
   setStatus("Manual page break inserted.");
 }
 
@@ -3789,43 +3761,43 @@ function is3DGraphData(data) {
 
 function ensureGraphInteraction(widget, canvas) {
   if (canvas.dataset.rotatable) return;
-  let dragging = false;
   let start = null;
-  canvas.addEventListener("pointerdown", (event) => {
-    if (!is3DGraphData(decodeDataSet(widget.dataset.graph, "graph"))) return;
-    event.preventDefault();
-    event.stopPropagation();
-    dragging = true;
-    start = { x: event.clientX, y: event.clientY, rotation: graphRotation(widget) };
-    selectObject(widget);
-    canvas.setPointerCapture?.(event.pointerId);
-  });
-  canvas.addEventListener("pointermove", (event) => {
-    if (!dragging || !start) return;
+  let activePointerId = null;
+  const move = (event) => {
+    if (!start || event.pointerId !== activePointerId) return;
     event.preventDefault();
     event.stopPropagation();
     const yaw = start.rotation.yaw + (event.clientX - start.x) * 0.012;
     const pitch = clamp(start.rotation.pitch + (event.clientY - start.y) * 0.008, -0.85, 0.85);
     widget.dataset.rotation = JSON.stringify({ yaw, pitch });
     renderGraphWidget(widget, false);
-  });
-  const endDrag = (event) => {
-    if (!dragging) return;
-    event?.preventDefault?.();
-    event?.stopPropagation?.();
-    dragging = false;
+  };
+  const end = (event) => {
+    if (!start || event.pointerId !== activePointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    document.removeEventListener("pointermove", move, true);
+    document.removeEventListener("pointerup", end, true);
+    document.removeEventListener("pointercancel", end, true);
+    document.body.classList.remove("dragging-graph");
     start = null;
-    try {
-      if (event?.pointerId !== undefined) canvas.releasePointerCapture?.(event.pointerId);
-    } catch {
-      // Pointer capture may already be released by the browser.
-    }
+    activePointerId = null;
     const owner = widget.closest("#editor, #templateEditor, #phraseExpansionEditor, #cardFront, #cardBack") || els.editor;
     syncRichEditor(owner);
   };
-  canvas.addEventListener("pointerup", endDrag);
-  canvas.addEventListener("pointercancel", endDrag);
-  canvas.addEventListener("lostpointercapture", endDrag);
+  const begin = (event) => {
+    if (!is3DGraphData(decodeDataSet(widget.dataset.graph, "graph"))) return;
+    event.preventDefault();
+    event.stopPropagation();
+    activePointerId = event.pointerId;
+    start = { x: event.clientX, y: event.clientY, rotation: graphRotation(widget) };
+    selectObject(widget);
+    document.body.classList.add("dragging-graph");
+    document.addEventListener("pointermove", move, true);
+    document.addEventListener("pointerup", end, true);
+    document.addEventListener("pointercancel", end, true);
+  };
+  canvas.addEventListener("pointerdown", begin, true);
   canvas.title = "Drag to rotate 3D graph";
   canvas.style.touchAction = "none";
   canvas.addEventListener("dragstart", (event) => event.preventDefault());
@@ -4989,7 +4961,6 @@ function normalizeCitation(citation = {}) {
 window.addEventListener("resize", () => {
   setToolWidth(toolWidth());
   renderWidgets();
-  renderPageGuides();
 });
 
 window.addEventListener("afterprint", () => {

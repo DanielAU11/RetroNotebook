@@ -891,26 +891,6 @@ button {
   outline: none;
 }
 
-.page-guides {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-  z-index: 4;
-}
-
-.page-guide {
-  position: absolute;
-  height: 17px;
-  padding: 1px 6px;
-  color: #000080;
-  background: #fff7bf;
-  border: 1px solid #000080;
-  font: 11px "MS Sans Serif", Arial, sans-serif;
-  text-align: center;
-  box-shadow: 1px 1px #808080;
-}
-
 .editor-page:empty::before {
   content: "Start typing, paste research, write equations, or switch tabs for flashcards and inserts...";
   color: #666;
@@ -949,12 +929,14 @@ button {
 .manual-page-break {
   display: grid;
   place-items: center;
-  height: 28px;
-  margin: 14px 0;
+  height: 34px;
+  margin: 18px calc(var(--paper-padding-x) * -1);
   color: #000080;
   font: 11px "MS Sans Serif", Arial, sans-serif;
-  background:
-    linear-gradient(transparent calc(50% - 1px), #000080 calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px));
+  background: var(--app-gray);
+  border-top: 1px solid #808080;
+  border-bottom: 1px solid #fff;
+  box-shadow: inset 0 1px #dfdfdf, inset 0 -1px #707070;
   break-after: page;
   page-break-after: always;
 }
@@ -1635,6 +1617,12 @@ table.selected-object {
 
 .graph-canvas.rotatable:active {
   cursor: grabbing;
+}
+
+.dragging-graph,
+.dragging-graph * {
+  cursor: grabbing !important;
+  user-select: none !important;
 }
 
 .draw-pad {
