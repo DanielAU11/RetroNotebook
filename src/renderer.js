@@ -31,6 +31,15 @@ const PAPER_SIZES = {
   executive: { label: "Executive", width: "7.25in", height: "10.5in", paddingX: "0.58in", paddingY: "0.48in" },
   index: { label: "Index Card", width: "5in", height: "3in", paddingX: "0.32in", paddingY: "0.24in" }
 };
+const DEFAULT_PAGE_SETUP = {
+  header: "",
+  footer: "",
+  headerAlign: "left",
+  footerAlign: "center",
+  pageNumberPosition: "bottom-right",
+  pageNumberTotal: false
+};
+const CITATION_STYLES = ["apa", "mla", "chicago", "vancouver", "ama", "custom"];
 const FORMAT_COLORS = [
   "#000000",
   "#808080",
@@ -68,6 +77,7 @@ let binderContext = null;
 let editingTemplateId = null;
 let editingPhraseId = null;
 let editingCardId = null;
+let selectedCitationId = null;
 let phraseRange = null;
 let activeRichEditor = null;
 let recognition = null;
@@ -102,6 +112,16 @@ function bindElements() {
     "fontSelect",
     "fontSizeSelect",
     "paperSizeSelect",
+    "pageHeaderInput",
+    "pageFooterInput",
+    "headerAlignSelect",
+    "footerAlignSelect",
+    "pageNumberPositionSelect",
+    "pageNumberTotalToggle",
+    "insertPageBreakBtn",
+    "applyPageSetupBtn",
+    "openPrintPreviewBtn",
+    "pageBreakInfo",
     "equationSelect",
     "findIconBtn",
     "equationIconBtn",
@@ -158,6 +178,22 @@ function bindElements() {
     "newPhraseBtn",
     "deletePhraseBtn",
     "savePhraseBtn",
+    "citationStyleSelect",
+    "citationCustomFormatInput",
+    "citationTitleInput",
+    "citationAuthorsInput",
+    "citationYearInput",
+    "citationJournalInput",
+    "citationDoiInput",
+    "citationUrlInput",
+    "citationNotesInput",
+    "citationPdfBtn",
+    "newCitationBtn",
+    "saveCitationBtn",
+    "deleteCitationBtn",
+    "citationList",
+    "insertCitationBtn",
+    "insertBibliographyBtn",
     "latexInput",
     "latexNameInput",
     "latexPreview",
@@ -193,7 +229,15 @@ function bindElements() {
     "dialogMessage",
     "dialogFields",
     "dialogButtons",
-    "imageFileInput"
+    "imageFileInput",
+    "citationPdfInput",
+    "printPreviewOverlay",
+    "printPreviewPages",
+    "printPreviewSummary",
+    "refreshPrintPreviewBtn",
+    "systemPrintBtn",
+    "cancelPrintPreviewBtn",
+    "closePrintPreviewBtn"
   ].forEach((id) => {
     els[id] = document.getElementById(id);
   });
@@ -214,7 +258,7 @@ function bindEvents() {
   els.newPageIconBtn.addEventListener("click", createPage);
   els.deletePageIconBtn.addEventListener("click", deleteActivePage);
   els.exportIconBtn.addEventListener("click", exportNotebook);
-  els.printPageBtn.addEventListener("click", printActivePage);
+  els.printPageBtn.addEventListener("click", openPrintPreview);
   els.searchInput.addEventListener("input", () => {
     renderBinder();
     renderSearchResults();
@@ -228,6 +272,12 @@ function bindEvents() {
   els.fontSelect.addEventListener("change", () => exec("fontName", els.fontSelect.value));
   els.fontSizeSelect.addEventListener("change", () => exec("fontSize", els.fontSizeSelect.value));
   els.paperSizeSelect.addEventListener("change", updateActivePaperSize);
+  els.applyPageSetupBtn.addEventListener("click", applyPageSetup);
+  els.insertPageBreakBtn.addEventListener("click", insertManualPageBreak);
+  els.openPrintPreviewBtn.addEventListener("click", openPrintPreview);
+  [els.pageHeaderInput, els.pageFooterInput, els.headerAlignSelect, els.footerAlignSelect, els.pageNumberPositionSelect, els.pageNumberTotalToggle].forEach((input) => {
+    input.addEventListener("change", applyPageSetup);
+  });
   els.textColorBtn.addEventListener("click", () => showColorMenu("text", els.textColorBtn));
   els.highlightColorBtn.addEventListener("click", () => showColorMenu("highlight", els.highlightColorBtn));
   els.textColorInput.addEventListener("input", () => applyTextColor());
@@ -271,6 +321,7 @@ function bindEvents() {
     queueSave();
     renderStats();
     renderDashboard();
+    if (document.querySelector("#citationsPanel.active")) renderCitationManager();
     updatePhraseMenu();
   });
   els.editor.addEventListener("keyup", updatePhraseMenu);
@@ -314,6 +365,16 @@ function bindEvents() {
   els.newPhraseBtn.addEventListener("click", newSmartPhraseDraft);
   els.deletePhraseBtn.addEventListener("click", deleteSelectedSmartPhrase);
   els.savePhraseBtn.addEventListener("click", saveSmartPhrase);
+
+  els.citationStyleSelect.addEventListener("change", updateCitationStyle);
+  els.citationCustomFormatInput.addEventListener("change", updateCitationStyle);
+  els.citationPdfBtn.addEventListener("click", () => els.citationPdfInput.click());
+  els.citationPdfInput.addEventListener("change", attachCitationPdf);
+  els.newCitationBtn.addEventListener("click", newCitationDraft);
+  els.saveCitationBtn.addEventListener("click", saveCitation);
+  els.deleteCitationBtn.addEventListener("click", deleteSelectedCitation);
+  els.insertCitationBtn.addEventListener("click", insertSelectedCitation);
+  els.insertBibliographyBtn.addEventListener("click", insertOrUpdateBibliography);
 
   els.newTagBtn.addEventListener("click", createTag);
   els.insertTagListBtn.addEventListener("click", insertTagList);
@@ -380,7 +441,7 @@ function bindEvents() {
   document.addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
       event.preventDefault();
-      printActivePage();
+      openPrintPreview();
       return;
     }
     if ((event.key === "Backspace" || event.key === "Delete") && selectedObject) {
@@ -393,6 +454,14 @@ function bindEvents() {
       hideAppMenu();
       clearSelectedObject();
     }
+  });
+
+  els.refreshPrintPreviewBtn.addEventListener("click", renderPrintPreview);
+  els.systemPrintBtn.addEventListener("click", printActivePage);
+  els.cancelPrintPreviewBtn.addEventListener("click", closePrintPreview);
+  els.closePrintPreviewBtn.addEventListener("click", closePrintPreview);
+  els.printPreviewOverlay.addEventListener("click", (event) => {
+    if (event.target === els.printPreviewOverlay) closePrintPreview();
   });
 }
 
@@ -606,6 +675,7 @@ function normalizeState(nextState, options = {}) {
       documentType: page.documentType || page["spe" + "cies"] || "lecture",
       goal: page.goal || "",
       paperSize: paperSizeKey(page.paperSize),
+      pageSetup: normalizePageSetup(page.pageSetup),
       favorite: Boolean(page.favorite),
       plain: page.plain || "",
       cards: Array.isArray(page.cards)
@@ -643,6 +713,11 @@ function normalizeState(nextState, options = {}) {
   nextState.glossaryTerms = Array.isArray(nextState.glossaryTerms)
     ? nextState.glossaryTerms.map(normalizeGlossaryTerm).filter((term) => term.term && term.definition)
     : defaultGlossaryTerms();
+  nextState.citationStyle = CITATION_STYLES.includes(nextState.citationStyle) ? nextState.citationStyle : "apa";
+  nextState.citationCustomFormat = nextState.citationCustomFormat || "{authors}. {title}. {journal}. {year}. {doi} {url}";
+  nextState.citations = Array.isArray(nextState.citations)
+    ? nextState.citations.map(normalizeCitation).filter((citation) => citation.title || citation.authors || citation.url || citation.doi || citation.pdfName)
+    : [];
   nextState.activeNotebook = nextState.notebooks.includes(nextState.activeNotebook)
     ? nextState.activeNotebook
     : nextState.pages.find((page) => page.id === nextState.activeId)?.notebook || nextState.notebooks[0];
@@ -692,6 +767,9 @@ function seedState() {
       { id: uid(), name: "win98", color: "#d9f2d0" }
     ],
     glossaryTerms: defaultGlossaryTerms(),
+    citationStyle: "apa",
+    citationCustomFormat: "{authors}. {title}. {journal}. {year}. {doi} {url}",
+    citations: [],
     latexSnippets: [
       { id: uid(), name: "Mass-energy equivalence", latex: "E = mc^2" },
       { id: uid(), name: "Derivative power rule", latex: "\\frac{d}{dx}x^2 = 2x" },
@@ -709,6 +787,7 @@ function seedState() {
         documentType: "lecture",
         goal: "Learn the notebook workspace in one tour.",
         paperSize: "letter",
+        pageSetup: { ...DEFAULT_PAGE_SETUP, header: "Retro Notebook Tutorial", footer: "Local-first study workspace", pageNumberPosition: "bottom-right" },
         content:
           `<h1>Retro Notebook Tutorial</h1><p>This single notebook is the starter tour. Create colored notebooks from the binder, write rich pages, save equations, insert tables, build editable charts and graphs, capture templates, create flashcards, and type /summary or /card to try smartphrases.</p><h2>Equation</h2><p>Saved equations can be named in the LaTeX tab and inserted from the toolbar dropdown: \\[\\frac{d}{dx}x^2 = 2x\\]</p><h2>Editable Chart</h2><div class="retro-widget chart-widget" contenteditable="false" data-chart="${encodeDataSet(tutorialChart)}"><div class="widget-title"><span class="widget-name">Retention Workflow</span></div><canvas class="chart-canvas"></canvas></div><h2>Editable 3D Graph</h2><div class="retro-widget graph-widget" contenteditable="false" data-graph="${encodeDataSet(tutorialGraph)}"><div class="widget-title"><span class="widget-name">Practice Surface</span></div><canvas class="graph-canvas"></canvas></div><h2>Study Loop</h2><ul><li>Select text and create flashcards.</li><li>Review cards with Again, Hard, Good, and Easy.</li><li>Save reusable page layouts in Templates.</li></ul>`,
         plain: "Retro Notebook Tutorial. Create colored notebooks, rich pages, equations, charts, 3D graphs, templates, flashcards, and smartphrases.",
@@ -753,6 +832,7 @@ function renderAll(loadEditor = false) {
   renderEquationSelect();
   renderCustomTemplates();
   renderSmartPhrases();
+  renderCitationManager();
   buildReviewQueue();
   renderReview();
   previewLatex();
@@ -1043,6 +1123,7 @@ function loadActivePageIntoEditor() {
   els.learningGoal.value = page.goal || "";
   els.paperSizeSelect.value = paperSizeKey(page.paperSize);
   applyPaperSize(page.paperSize);
+  loadPageSetupControls(page);
   els.editor.innerHTML = page.content || "";
   renderWidgets();
   typesetMath();
@@ -1059,7 +1140,9 @@ function renderStats() {
   els.cardCount.textContent = String(page.cards.length);
   els.nextDue.textContent = next ? formatDate(next.due) : "None";
   els.updatedAt.textContent = formatDate(page.updatedAt);
-  els.countText.textContent = `${words} words / ${chars} chars`;
+  const pages = estimateEditorPageCount();
+  els.countText.textContent = `${words} words / ${chars} chars / ${pages} page${pages === 1 ? "" : "s"}`;
+  updatePageBreakInfo(pages);
 }
 
 function renderDueCards() {
@@ -1197,6 +1280,7 @@ function switchMainTab(name) {
   });
   if (name === "latex") previewLatex();
   if (name === "review") renderReview();
+  if (name === "citations") renderCitationManager();
 }
 
 function selectNotebook(notebook) {
@@ -2123,7 +2207,44 @@ function updateActivePaperSize() {
   applyPaperSize(page.paperSize);
   saveState();
   renderWidgets();
+  renderStats();
   setStatus(`Paper size set to ${PAPER_SIZES[page.paperSize].label}.`);
+}
+
+function loadPageSetupControls(page) {
+  const setup = normalizePageSetup(page?.pageSetup);
+  els.pageHeaderInput.value = setup.header;
+  els.pageFooterInput.value = setup.footer;
+  els.headerAlignSelect.value = setup.headerAlign;
+  els.footerAlignSelect.value = setup.footerAlign;
+  els.pageNumberPositionSelect.value = setup.pageNumberPosition;
+  els.pageNumberTotalToggle.checked = setup.pageNumberTotal;
+}
+
+function readPageSetupControls() {
+  return normalizePageSetup({
+    header: els.pageHeaderInput.value,
+    footer: els.pageFooterInput.value,
+    headerAlign: els.headerAlignSelect.value,
+    footerAlign: els.footerAlignSelect.value,
+    pageNumberPosition: els.pageNumberPositionSelect.value,
+    pageNumberTotal: els.pageNumberTotalToggle.checked
+  });
+}
+
+function applyPageSetup() {
+  const page = activePage();
+  if (!page) return;
+  page.pageSetup = readPageSetupControls();
+  page.updatedAt = Date.now();
+  saveState();
+  setStatus("Page setup saved.");
+  if (!els.printPreviewOverlay.hidden) renderPrintPreview();
+}
+
+function insertManualPageBreak() {
+  insertHtml('<div class="manual-page-break" contenteditable="false">Page Break</div><p></p>');
+  setStatus("Manual page break inserted.");
 }
 
 function focusSearch() {
@@ -2132,13 +2253,110 @@ function focusSearch() {
   renderSearchResults();
 }
 
+function openPrintPreview() {
+  syncEditorNow();
+  applyPageSetup();
+  els.printPreviewOverlay.hidden = false;
+  renderPrintPreview();
+}
+
+function closePrintPreview() {
+  els.printPreviewOverlay.hidden = true;
+}
+
 function printActivePage() {
   syncEditorNow();
-  applyPaperSize(activePage()?.paperSize);
+  renderPrintPreview();
   document.body.classList.add("printing");
   clearSelectedObject();
   window.print();
   window.setTimeout(() => document.body.classList.remove("printing"), 1000);
+}
+
+function renderPrintPreview() {
+  const page = activePage();
+  if (!page || !els.printPreviewPages) return;
+  syncEditorNow();
+  applyPaperSize(page.paperSize);
+  renderWidgets();
+  els.printPreviewPages.innerHTML = "";
+  const setup = normalizePageSetup(page.pageSetup);
+  const sourceNodes = [...els.editor.childNodes].map(cloneNodeForPrint);
+  if (!sourceNodes.length) sourceNodes.push(document.createElement("p"));
+  const pages = [];
+  let previewPage = createPreviewPage(pages.length + 1, setup);
+  pages.push(previewPage);
+  els.printPreviewPages.appendChild(previewPage.shell);
+  sourceNodes.forEach((node) => {
+    if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains("manual-page-break")) {
+      previewPage = createPreviewPage(pages.length + 1, setup);
+      pages.push(previewPage);
+      els.printPreviewPages.appendChild(previewPage.shell);
+      return;
+    }
+    previewPage.body.appendChild(node);
+    if (previewPage.body.scrollHeight > previewPage.body.clientHeight + 4 && previewPage.body.childNodes.length > 1) {
+      previewPage.body.removeChild(node);
+      previewPage = createPreviewPage(pages.length + 1, setup);
+      pages.push(previewPage);
+      els.printPreviewPages.appendChild(previewPage.shell);
+      previewPage.body.appendChild(node);
+    }
+  });
+  pages.forEach((entry, index) => updatePreviewPageChrome(entry.shell, index + 1, pages.length, setup));
+  els.printPreviewSummary.textContent = `${pages.length} page${pages.length === 1 ? "" : "s"} - ${PAPER_SIZES[paperSizeKey(page.paperSize)].label}`;
+  if (window.MathJax?.typesetPromise) window.MathJax.typesetPromise([els.printPreviewPages]).catch(() => {});
+}
+
+function cloneNodeForPrint(node) {
+  const clone = node.cloneNode(true);
+  if (node.nodeType !== Node.ELEMENT_NODE) return clone;
+  clone.querySelectorAll?.(".widget-actions").forEach((actions) => actions.remove());
+  const sourceCanvases = node.matches?.("canvas") ? [node] : [...node.querySelectorAll("canvas")];
+  const cloneCanvases = clone.matches?.("canvas") ? [clone] : [...clone.querySelectorAll("canvas")];
+  sourceCanvases.forEach((canvas, index) => {
+    const target = cloneCanvases[index];
+    if (!target) return;
+    const image = document.createElement("img");
+    image.className = `${canvas.className || ""} print-canvas-image`.trim();
+    try {
+      image.src = canvas.toDataURL("image/png");
+    } catch {
+      image.alt = "Canvas preview unavailable";
+    }
+    target.replaceWith(image);
+  });
+  return clone;
+}
+
+function createPreviewPage(pageNumber, setup) {
+  const shell = document.createElement("article");
+  shell.className = "print-page";
+  shell.innerHTML = `
+    <div class="print-header"></div>
+    <div class="print-page-number"></div>
+    <div class="print-body"></div>
+    <div class="print-footer"></div>
+  `;
+  updatePreviewPageChrome(shell, pageNumber, pageNumber, setup);
+  return { shell, body: shell.querySelector(".print-body") };
+}
+
+function updatePreviewPageChrome(shell, pageNumber, totalPages, setup) {
+  const header = shell.querySelector(".print-header");
+  const footer = shell.querySelector(".print-footer");
+  const number = shell.querySelector(".print-page-number");
+  header.textContent = setup.header;
+  footer.textContent = setup.footer;
+  header.dataset.align = setup.headerAlign;
+  footer.dataset.align = setup.footerAlign;
+  number.textContent = pageNumberText(pageNumber, totalPages, setup);
+  number.dataset.position = setup.pageNumberPosition;
+}
+
+function pageNumberText(pageNumber, totalPages, setup) {
+  if (setup.pageNumberPosition === "none") return "";
+  return setup.pageNumberTotal ? `Page ${pageNumber} of ${totalPages}` : String(pageNumber);
 }
 
 function exportNotebook() {
@@ -2216,9 +2434,11 @@ function appMenuItems() {
     ],
     view: [
       { label: "Overview", action: "overview" },
+      { label: "Page Setup", action: "pageSetup" },
       { label: "LaTeX", action: "latex" },
       { label: "Templates", action: "templates" },
       { label: "Phrases", action: "phrases" },
+      { label: "Citations", action: "citations" },
       { label: "Cards", action: "cards" },
       { label: "Review", action: "review" },
       { separator: true },
@@ -2259,6 +2479,7 @@ function appMenuItems() {
       { label: "LaTeX Workspace", action: "latex" },
       { label: "Template Builder", action: "templates" },
       { label: "SmartPhrases", action: "phrases" },
+      { label: "Citation Manager", action: "citations" },
       { label: "Start Dictation", action: "dictation" },
       { label: "Read Selected Text", action: "speak" },
       { separator: true },
@@ -2301,9 +2522,11 @@ function menuActions() {
     selectAll: () => document.execCommand("selectAll"),
     find: focusSearch,
     overview: () => switchMainTab("dashboard"),
+    pageSetup: () => switchMainTab("pageSetup"),
     latex: () => switchMainTab("latex"),
     templates: () => switchMainTab("insert"),
     phrases: () => switchMainTab("phrases"),
+    citations: () => switchMainTab("citations"),
     cards: () => switchMainTab("flashcards"),
     review: () => switchMainTab("review"),
     focusPage: () => withRichEditor(els.editor, () => els.editor.focus()),
@@ -2437,6 +2660,235 @@ async function deleteSelectedSmartPhrase() {
   saveState();
   renderSmartPhrases();
   setStatus(`SmartPhrase /${phrase.trigger} deleted.`);
+}
+
+function renderCitationManager() {
+  if (!els.citationList) return;
+  els.citationStyleSelect.value = state.citationStyle || "apa";
+  els.citationCustomFormatInput.value = state.citationCustomFormat || "";
+  if (!selectedCitationId && state.citations.length) selectedCitationId = state.citations[0].id;
+  if (selectedCitationId && !state.citations.some((citation) => citation.id === selectedCitationId)) selectedCitationId = state.citations[0]?.id || null;
+  const selected = state.citations.find((citation) => citation.id === selectedCitationId);
+  loadCitationDraft(selected || blankCitation());
+  els.citationList.innerHTML = "";
+  if (!state.citations.length) {
+    els.citationList.innerHTML = "<p class=\"fine-print\">No citations yet. Add an article, DOI, link, or PDF.</p>";
+    return;
+  }
+  citationOrderForPage().forEach((citation, index) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "citation-row" + (citation.id === selectedCitationId ? " active" : "");
+    row.innerHTML = `
+      <strong>${index + 1}. ${escapeHtml(citation.title || "Untitled source")}</strong>
+      <small>${escapeHtml(citation.authors || "Unknown author")} - ${escapeHtml(citation.year || "n.d.")}</small>
+      <span>${escapeHtml(formatCitation(citation, state.citationStyle, true))}</span>
+      ${citation.pdfName ? `<em>${escapeHtml(citation.pdfName)}</em>` : ""}
+    `;
+    row.addEventListener("click", () => {
+      selectedCitationId = citation.id;
+      renderCitationManager();
+    });
+    els.citationList.appendChild(row);
+  });
+}
+
+function blankCitation() {
+  return { id: "", title: "", authors: "", year: "", journal: "", doi: "", url: "", notes: "", pdfName: "", pdfDataUrl: "" };
+}
+
+function loadCitationDraft(citation) {
+  els.citationTitleInput.value = citation.title || "";
+  els.citationAuthorsInput.value = citation.authors || "";
+  els.citationYearInput.value = citation.year || "";
+  els.citationJournalInput.value = citation.journal || "";
+  els.citationDoiInput.value = citation.doi || "";
+  els.citationUrlInput.value = citation.url || "";
+  els.citationNotesInput.value = citation.notes || "";
+  els.citationPdfBtn.textContent = citation.pdfName ? `PDF: ${citation.pdfName.slice(0, 22)}` : "Attach PDF";
+}
+
+function readCitationDraft() {
+  const current = state.citations.find((citation) => citation.id === selectedCitationId) || blankCitation();
+  return normalizeCitation({
+    ...current,
+    id: current.id || uid(),
+    title: els.citationTitleInput.value,
+    authors: els.citationAuthorsInput.value,
+    year: els.citationYearInput.value,
+    journal: els.citationJournalInput.value,
+    doi: els.citationDoiInput.value,
+    url: els.citationUrlInput.value,
+    notes: els.citationNotesInput.value
+  });
+}
+
+function newCitationDraft() {
+  selectedCitationId = null;
+  loadCitationDraft(blankCitation());
+  els.citationTitleInput.focus();
+  setStatus("New citation draft ready.");
+}
+
+function saveCitation() {
+  const citation = readCitationDraft();
+  if (!citation.title && !citation.authors && !citation.url && !citation.doi) {
+    setStatus("Add at least a title, author, DOI, or URL.");
+    return;
+  }
+  const index = state.citations.findIndex((item) => item.id === citation.id);
+  if (index >= 0) state.citations[index] = citation;
+  else state.citations.push(citation);
+  selectedCitationId = citation.id;
+  saveState();
+  renumberCitations();
+  renderCitationManager();
+  setStatus(`Citation "${citation.title || citation.authors}" saved.`);
+}
+
+async function deleteSelectedCitation() {
+  if (!selectedCitationId) return;
+  const citation = state.citations.find((item) => item.id === selectedCitationId);
+  if (!citation) return;
+  const ok = await retroConfirm("Delete Citation", `Delete "${citation.title || citation.authors}" from the citation library?`, "warning");
+  if (!ok) return;
+  state.citations = state.citations.filter((item) => item.id !== selectedCitationId);
+  els.editor.querySelectorAll(`[data-citation-id="${CSS.escape(selectedCitationId)}"]`).forEach((node) => node.remove());
+  selectedCitationId = state.citations[0]?.id || null;
+  saveState();
+  renumberCitations();
+  renderCitationManager();
+  setStatus("Citation deleted.");
+}
+
+function updateCitationStyle() {
+  state.citationStyle = CITATION_STYLES.includes(els.citationStyleSelect.value) ? els.citationStyleSelect.value : "apa";
+  state.citationCustomFormat = els.citationCustomFormatInput.value || "{authors}. {title}. {journal}. {year}. {doi} {url}";
+  saveState();
+  renumberCitations();
+  renderCitationManager();
+  setStatus(`Citation style set to ${state.citationStyle.toUpperCase()}.`);
+}
+
+function attachCitationPdf() {
+  const file = els.citationPdfInput.files?.[0];
+  if (!file) return;
+  const current = readCitationDraft();
+  current.pdfName = file.name;
+  const finish = (dataUrl = "") => {
+    current.pdfDataUrl = dataUrl;
+    const index = state.citations.findIndex((item) => item.id === current.id);
+    if (index >= 0) state.citations[index] = current;
+    else state.citations.push(current);
+    selectedCitationId = current.id;
+    saveState();
+    renderCitationManager();
+    setStatus(dataUrl ? `Attached "${file.name}".` : `Linked PDF filename "${file.name}" (file too large for local embedding).`);
+  };
+  if (file.size > 4 * 1024 * 1024) {
+    finish("");
+    return;
+  }
+  const reader = new FileReader();
+  reader.addEventListener("load", () => finish(reader.result));
+  reader.readAsDataURL(file);
+}
+
+function insertSelectedCitation() {
+  const citation = state.citations.find((item) => item.id === selectedCitationId);
+  if (!citation) {
+    setStatus("Save or select a citation first.");
+    return;
+  }
+  insertHtml(`<span class="citation-ref" contenteditable="false" data-citation-id="${escapeHtml(citation.id)}">[?]</span>&nbsp;`);
+  renumberCitations();
+  renderCitationManager();
+  setStatus("Citation inserted and reordered.");
+}
+
+function insertOrUpdateBibliography() {
+  const ordered = citationOrderForPage();
+  if (!ordered.length) {
+    setStatus("Insert citations in the page first.");
+    return;
+  }
+  els.editor.querySelector(".citation-bibliography")?.remove();
+  const entries = ordered.map((citation) => `<li>${escapeHtml(formatCitation(citation, state.citationStyle, false))}</li>`).join("");
+  els.editor.insertAdjacentHTML("beforeend", `<section class="citation-bibliography"><h1>Citations</h1><ol>${entries}</ol></section>`);
+  syncEditorNow();
+  renderCitationManager();
+  setStatus("Bibliography inserted in citation order.");
+}
+
+function renumberCitations() {
+  const order = citationIdOrderInEditor();
+  els.editor.querySelectorAll(".citation-ref[data-citation-id]").forEach((node) => {
+    const citation = state.citations.find((item) => item.id === node.dataset.citationId);
+    const index = order.indexOf(node.dataset.citationId);
+    node.textContent = citationInlineText(citation, index + 1);
+    node.title = citation ? formatCitation(citation, state.citationStyle, true) : "Missing citation";
+  });
+  const bibliography = els.editor.querySelector(".citation-bibliography");
+  if (bibliography?.querySelector("ol")) {
+    const entries = citationOrderForPage().map((citation) => `<li>${escapeHtml(formatCitation(citation, state.citationStyle, false))}</li>`).join("");
+    bibliography.querySelector("ol").innerHTML = entries;
+  }
+  syncEditorNow();
+}
+
+function citationIdOrderInEditor() {
+  return unique([...els.editor.querySelectorAll(".citation-ref[data-citation-id]")].map((node) => node.dataset.citationId).filter(Boolean));
+}
+
+function citationOrderForPage() {
+  const byId = new Map(state.citations.map((citation) => [citation.id, citation]));
+  const inUse = citationIdOrderInEditor().map((id) => byId.get(id)).filter(Boolean);
+  const unused = state.citations.filter((citation) => !inUse.some((item) => item.id === citation.id));
+  return [...inUse, ...unused];
+}
+
+function citationInlineText(citation, index) {
+  if (!citation) return "[?]";
+  if (state.citationStyle === "apa" || state.citationStyle === "mla" || state.citationStyle === "chicago") {
+    return `(${firstAuthorLastName(citation.authors) || "Source"}, ${citation.year || "n.d."})`;
+  }
+  return `[${index || "?"}]`;
+}
+
+function formatCitation(citation, style = "apa", compact = false) {
+  const authors = citation.authors || "Unknown author";
+  const year = citation.year || "n.d.";
+  const title = citation.title || "Untitled source";
+  const journal = citation.journal || "Unpublished source";
+  const doi = citation.doi ? `doi:${citation.doi}` : "";
+  const url = citation.url || "";
+  if (style === "mla") return `${authors}. "${title}." ${journal}, ${year}. ${doi || url}`.trim();
+  if (style === "chicago") return `${authors}. "${title}." ${journal} (${year}). ${doi || url}`.trim();
+  if (style === "vancouver") return `${authors}. ${title}. ${journal}. ${year}. ${doi || url}`.trim();
+  if (style === "ama") return `${authors}. ${title}. ${journal}. Published ${year}. ${doi || url}`.trim();
+  if (style === "custom") return formatCustomCitation(citation);
+  return compact
+    ? `${firstAuthorLastName(authors) || authors} (${year}). ${title}.`
+    : `${authors} (${year}). ${title}. ${journal}. ${doi || url}`.trim();
+}
+
+function formatCustomCitation(citation) {
+  const template = state.citationCustomFormat || "{authors}. {title}. {journal}. {year}. {doi} {url}";
+  return template
+    .replaceAll("{authors}", citation.authors || "Unknown author")
+    .replaceAll("{title}", citation.title || "Untitled source")
+    .replaceAll("{journal}", citation.journal || "")
+    .replaceAll("{year}", citation.year || "n.d.")
+    .replaceAll("{doi}", citation.doi || "")
+    .replaceAll("{url}", citation.url || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function firstAuthorLastName(authors) {
+  const first = String(authors || "").split(/[;,]/)[0]?.trim() || "";
+  const parts = first.split(/\s+/).filter(Boolean);
+  return parts.length ? parts.at(-1).replace(/[.,]/g, "") : "";
 }
 
 function updatePhraseMenu() {
@@ -2675,6 +3127,7 @@ function makeBlankPage(notebook, folderId) {
     documentType: "lecture",
     goal: "",
     paperSize: "letter",
+    pageSetup: normalizePageSetup(),
     favorite: false,
     content: "<h1>Untitled page</h1><p></p>",
     plain: "",
@@ -2689,6 +3142,7 @@ function syncEditorNow() {
   page.content = els.editor.innerHTML;
   page.plain = els.editor.innerText;
   page.paperSize = paperSizeKey(els.paperSizeSelect?.value || page.paperSize);
+  if (els.pageHeaderInput) page.pageSetup = readPageSetupControls();
   page.updatedAt = Date.now();
   saveState();
   renderStats();
@@ -2713,7 +3167,7 @@ function ensureWidgetControls(widget) {
   const title = widget.querySelector(".widget-title");
   if (!title) return;
   const hadActions = title.querySelector(".widget-actions");
-  if ((widget.classList.contains("chart-widget") || widget.classList.contains("graph-widget")) && !title.querySelector(".widget-name")) {
+  if (widget.classList.contains("chart-widget") || widget.classList.contains("graph-widget")) {
     const data = widget.classList.contains("chart-widget")
       ? decodeDataSet(widget.dataset.chart, "chart")
       : decodeDataSet(widget.dataset.graph, "graph");
@@ -4113,6 +4567,68 @@ function normalizeHexColor(value) {
     return `#${text[0]}${text[0]}${text[1]}${text[1]}${text[2]}${text[2]}`.toLowerCase();
   }
   return "";
+}
+
+function estimateEditorPageCount() {
+  if (!els.editor) return 1;
+  const pageHeight = cssLengthToPixels(getComputedStyle(document.documentElement).getPropertyValue("--paper-height")) || 1056;
+  const gap = cssLengthToPixels(getComputedStyle(document.documentElement).getPropertyValue("--paper-sheet-gap")) || 42;
+  const contentHeight = Math.max(1, els.editor.scrollHeight - gap);
+  return Math.max(1, Math.ceil(contentHeight / Math.max(1, pageHeight + gap)));
+}
+
+function updatePageBreakInfo(pages = estimateEditorPageCount()) {
+  if (!els.pageBreakInfo) return;
+  const size = PAPER_SIZES[paperSizeKey(activePage()?.paperSize)];
+  const lineHeight = Number.parseFloat(getComputedStyle(els.editor).lineHeight) || 23;
+  const pagePx = cssLengthToPixels(size.height) || 1056;
+  const topPad = cssLengthToPixels(size.paddingY) || 52;
+  const usable = Math.max(1, pagePx - topPad * 2);
+  const lines = Math.max(1, Math.floor(usable / lineHeight));
+  els.pageBreakInfo.textContent = `${size.label} breaks after about ${lines} normal lines. Current preview estimate: ${pages} page${pages === 1 ? "" : "s"}.`;
+}
+
+function cssLengthToPixels(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return 0;
+  const number = Number.parseFloat(raw);
+  if (!Number.isFinite(number)) return 0;
+  if (raw.endsWith("in")) return number * 96;
+  if (raw.endsWith("cm")) return number * 37.795;
+  if (raw.endsWith("mm")) return number * 3.7795;
+  if (raw.endsWith("pt")) return number * 1.3333;
+  return number;
+}
+
+function normalizePageSetup(setup = {}) {
+  const headerAlign = ["left", "center", "right"].includes(setup.headerAlign) ? setup.headerAlign : DEFAULT_PAGE_SETUP.headerAlign;
+  const footerAlign = ["left", "center", "right"].includes(setup.footerAlign) ? setup.footerAlign : DEFAULT_PAGE_SETUP.footerAlign;
+  const pageNumberPosition = ["none", "top-left", "top-center", "top-right", "bottom-left", "bottom-center", "bottom-right"].includes(setup.pageNumberPosition)
+    ? setup.pageNumberPosition
+    : DEFAULT_PAGE_SETUP.pageNumberPosition;
+  return {
+    header: String(setup.header || DEFAULT_PAGE_SETUP.header).slice(0, 120),
+    footer: String(setup.footer || DEFAULT_PAGE_SETUP.footer).slice(0, 120),
+    headerAlign,
+    footerAlign,
+    pageNumberPosition,
+    pageNumberTotal: Boolean(setup.pageNumberTotal)
+  };
+}
+
+function normalizeCitation(citation = {}) {
+  return {
+    id: citation.id || uid(),
+    title: normalizeNotebookName(citation.title).slice(0, 220),
+    authors: String(citation.authors || "").trim().slice(0, 260),
+    year: String(citation.year || "").trim().slice(0, 24),
+    journal: normalizeNotebookName(citation.journal).slice(0, 180),
+    doi: String(citation.doi || "").trim().replace(/^doi:\s*/i, "").slice(0, 160),
+    url: String(citation.url || "").trim().slice(0, 500),
+    notes: String(citation.notes || "").trim().slice(0, 1200),
+    pdfName: normalizeNotebookName(citation.pdfName).slice(0, 220),
+    pdfDataUrl: String(citation.pdfDataUrl || "")
+  };
 }
 
 window.addEventListener("resize", () => {

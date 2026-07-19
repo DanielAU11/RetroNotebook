@@ -174,9 +174,11 @@
           </div>
           <menu class="side-tabs" role="tablist" aria-label="Workspace tools">
             <li role="tab" class="side-tab active" data-main-tab="dashboard"><a href="#">Overview</a></li>
+            <li role="tab" class="side-tab" data-main-tab="pageSetup"><a href="#">Page</a></li>
             <li role="tab" class="side-tab" data-main-tab="latex"><a href="#">LaTeX</a></li>
             <li role="tab" class="side-tab" data-main-tab="insert"><a href="#">Templates</a></li>
             <li role="tab" class="side-tab" data-main-tab="phrases"><a href="#">Phrases</a></li>
+            <li role="tab" class="side-tab" data-main-tab="citations"><a href="#">Cite</a></li>
             <li role="tab" class="side-tab" data-main-tab="flashcards"><a href="#">Cards</a></li>
             <li role="tab" class="side-tab" data-main-tab="review"><a href="#">Review</a></li>
           </menu>
@@ -219,6 +221,60 @@
                   <div id="recentPagesList" class="dashboard-list"></div>
                 </fieldset>
               </div>
+            </div>
+          </section>
+
+          <section class="main-panel" id="pageSetupPanel">
+            <div class="window-body page-setup-body">
+              <fieldset>
+                <legend>Headers And Footers</legend>
+                <div class="field-row-stacked">
+                  <label for="pageHeaderInput">Header text</label>
+                  <input id="pageHeaderInput" placeholder="Essay title, course, author..." />
+                </div>
+                <div class="field-row-stacked">
+                  <label for="pageFooterInput">Footer text</label>
+                  <input id="pageFooterInput" placeholder="Draft note, honor code, institution..." />
+                </div>
+                <div class="profile-grid">
+                  <label for="headerAlignSelect">Header</label>
+                  <select id="headerAlignSelect">
+                    <option value="left">Left</option>
+                    <option value="center">Middle</option>
+                    <option value="right">Right</option>
+                  </select>
+                  <label for="footerAlignSelect">Footer</label>
+                  <select id="footerAlignSelect">
+                    <option value="left">Left</option>
+                    <option value="center">Middle</option>
+                    <option value="right">Right</option>
+                  </select>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>Page Numbers</legend>
+                <select id="pageNumberPositionSelect">
+                  <option value="none">No page numbers</option>
+                  <option value="top-left">Top left</option>
+                  <option value="top-center">Top middle</option>
+                  <option value="top-right">Top right</option>
+                  <option value="bottom-left">Bottom left</option>
+                  <option value="bottom-center">Bottom middle</option>
+                  <option value="bottom-right">Bottom right</option>
+                </select>
+                <label class="inline-check"><input id="pageNumberTotalToggle" type="checkbox" /> Include total pages</label>
+                <div class="button-row right">
+                  <button id="insertPageBreakBtn">Insert Page Break</button>
+                  <button id="applyPageSetupBtn">Apply Page Setup</button>
+                </div>
+                <p id="pageBreakInfo" class="fine-print">Letter pages break after about 40-45 normal 12 pt lines.</p>
+              </fieldset>
+              <fieldset>
+                <legend>Print</legend>
+                <div class="button-row right">
+                  <button id="openPrintPreviewBtn">Preview Page</button>
+                </div>
+              </fieldset>
             </div>
           </section>
 
@@ -340,6 +396,63 @@
             </div>
           </section>
 
+          <section class="main-panel" id="citationsPanel">
+            <div class="window-body citations-body">
+              <fieldset>
+                <legend>Citation Manager</legend>
+                <div class="profile-grid">
+                  <label for="citationStyleSelect">Style</label>
+                  <select id="citationStyleSelect">
+                    <option value="apa">APA</option>
+                    <option value="mla">MLA</option>
+                    <option value="chicago">Chicago</option>
+                    <option value="vancouver">Vancouver</option>
+                    <option value="ama">AMA</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  <label for="citationCustomFormatInput">Custom</label>
+                  <input id="citationCustomFormatInput" placeholder="{authors}. {title}. {journal}. {year}. {doi}" />
+                </div>
+                <div class="citation-editor-grid">
+                  <div class="field-row-stacked">
+                    <label for="citationTitleInput">Title</label>
+                    <input id="citationTitleInput" placeholder="Article title" />
+                    <label for="citationAuthorsInput">Authors</label>
+                    <input id="citationAuthorsInput" placeholder="Smith J; Lee A; Patel R" />
+                    <label for="citationYearInput">Year</label>
+                    <input id="citationYearInput" placeholder="2026" />
+                  </div>
+                  <div class="field-row-stacked">
+                    <label for="citationJournalInput">Journal / Source</label>
+                    <input id="citationJournalInput" placeholder="Journal name or website" />
+                    <label for="citationDoiInput">DOI</label>
+                    <input id="citationDoiInput" placeholder="10.xxxx/xxxxx" />
+                    <label for="citationUrlInput">URL</label>
+                    <input id="citationUrlInput" placeholder="https://..." />
+                  </div>
+                </div>
+                <div class="field-row-stacked">
+                  <label for="citationNotesInput">Notes</label>
+                  <textarea id="citationNotesInput" rows="3" placeholder="Key finding, quote, methods note..."></textarea>
+                </div>
+                <div class="button-row right">
+                  <button id="citationPdfBtn">Attach PDF</button>
+                  <button id="newCitationBtn">New</button>
+                  <button id="saveCitationBtn">Save</button>
+                  <button id="deleteCitationBtn">Delete</button>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>Library</legend>
+                <div id="citationList" class="citation-list"></div>
+                <div class="button-row right">
+                  <button id="insertCitationBtn">Insert Citation</button>
+                  <button id="insertBibliographyBtn">Insert / Update Bibliography</button>
+                </div>
+              </fieldset>
+            </div>
+          </section>
+
           <section class="main-panel" id="flashcardsPanel">
             <div class="window-body study-body">
               <fieldset>
@@ -445,7 +558,28 @@
 
     <menu id="colorMenu" class="color-menu" hidden></menu>
     <input id="imageFileInput" class="hidden-file-input" type="file" accept="image/*" />
+    <input id="citationPdfInput" class="hidden-file-input" type="file" accept="application/pdf,.pdf" />
     <menu id="phraseMenu" class="phrase-menu" hidden></menu>
+
+    <div id="printPreviewOverlay" class="print-preview-overlay" hidden>
+      <section class="window print-preview-window" role="dialog" aria-modal="true" aria-labelledby="printPreviewTitle">
+        <div class="title-bar">
+          <div class="title-bar-text" id="printPreviewTitle">Print Preview</div>
+          <div class="title-bar-controls">
+            <button id="closePrintPreviewBtn" aria-label="Close"></button>
+          </div>
+        </div>
+        <div class="window-body print-preview-body">
+          <div class="print-preview-toolbar">
+            <span id="printPreviewSummary">0 pages</span>
+            <button id="refreshPrintPreviewBtn">Refresh</button>
+            <button id="systemPrintBtn">Print</button>
+            <button id="cancelPrintPreviewBtn">Close</button>
+          </div>
+          <div id="printPreviewPages" class="print-preview-pages"></div>
+        </div>
+      </section>
+    </div>
 
     <script src="./renderer.js"></script>
   </body>

@@ -9,7 +9,8 @@ The interface uses [98.css](https://unpkg.com/98.css) with Windows 98-style icon
 - Notebook binder with colored notebooks, folders, pages, favorites, tags, and page search.
 - Rich document editor with headings, glossary titles, quotes, fonts, text color, highlight color, alignment, lists, checklist items, line spacing, dividers, superscript, and subscript.
 - Per-page paper sizes, including Letter, A4, Legal, Executive, and Index Card.
-- Printable pages with app chrome hidden and embedded chart/graph controls removed for clean output.
+- In-app print preview with paper-sized pages, clean print output, and embedded chart/graph controls removed.
+- Headers, footers, and page numbers with top-left, top-middle, top-right, bottom-left, bottom-middle, and bottom-right placement.
 - LaTeX workspace for naming and saving equations, then inserting them from the toolbar.
 - Editable tables, charts, and data graphs.
 - Chart types include column, bar, stacked column, line, area, pie, doughnut, and radar.
@@ -22,6 +23,8 @@ The interface uses [98.css](https://unpkg.com/98.css) with Windows 98-style icon
 - Flashcard creation from selected text or manual rich-card entry.
 - Spaced-repetition review with Again, Hard, Good, and Easy grading.
 - Dictation and text-to-speech support when available in the Electron runtime.
+- Citation manager inspired by EndNote for saving article metadata, links, DOI values, PDF attachments, inline citations, and ordered bibliographies.
+- Citation styles include APA, MLA, Chicago, Vancouver, AMA, and a custom template format.
 - Local autosave through browser storage plus JSON export for backups.
 
 ## Install
@@ -50,7 +53,9 @@ This project currently ships as a development Electron app. The `npm run make` s
 
 Create notebooks from the Notebook Binder, choose a notebook color, then create folders and pages inside it. Use the top toolbar and application menus for document editing, inserting equations, tables, charts, graphs, images, dividers, and glossary blocks.
 
-Use the paper-size selector in the formatting toolbar to set the current page size. Page breaks appear as gray bands in the writing surface, and printing uses the selected paper dimensions.
+Use the paper-size selector in the formatting toolbar to set the current page size. Page breaks appear as gray bands in the writing surface. The Page tool panel lets you add header text, footer text, page numbers, and manual page breaks. A Letter page breaks at roughly 40-45 normal 12 pt lines, depending on formatting, tables, graphs, and images.
+
+Click the print button to open Retro Notebook Studio's in-app print preview. The preview paginates the current note into paper-sized sheets and shows headers, footers, and page numbers before you send it to the system print dialog.
 
 For equations, open the LaTeX tool panel, name an equation, save it, then insert it from the sigma equation dropdown in the toolbar.
 
@@ -59,6 +64,8 @@ For charts and graphs, choose Insert Chart or Insert Graph, name the object, sel
 For flashcards, select text in a note and click the flashcard button, or open the Cards panel and write the front and back manually. Review due cards in the Review panel and grade recall using Again, Hard, Good, or Easy.
 
 For SmartPhrases, create a phrase in the Phrases panel and trigger it in the editor by typing `/` followed by the phrase name.
+
+For citations, open the Cite panel, choose a style, save sources with article metadata, DOI values, URLs, notes, and optional PDF attachments, then insert citations into the page. Use Insert / Update Bibliography to generate the citation section in first-use order.
 
 ## Data And Backups
 

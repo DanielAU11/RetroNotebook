@@ -882,6 +882,7 @@ button {
       #f4f4f4 calc(var(--paper-height) + var(--paper-sheet-gap) - 3px),
       var(--paper) calc(var(--paper-height) + var(--paper-sheet-gap))
     );
+  background-attachment: local;
   border: 1px solid #555;
   box-shadow: 4px 4px 0 #707070;
   font-family: "Times New Roman", Times, serif;
@@ -923,6 +924,20 @@ button {
   border: 0;
   border-top: 2px solid #808080;
   border-bottom: 1px solid #fff;
+}
+
+.manual-page-break {
+  display: grid;
+  place-items: center;
+  height: var(--paper-sheet-gap);
+  margin: 20px calc(var(--paper-padding-x) * -1);
+  color: #000080;
+  font: 11px "MS Sans Serif", Arial, sans-serif;
+  background:
+    linear-gradient(#707070 0 1px, transparent 1px calc(100% - 1px), #fff calc(100% - 1px)),
+    var(--app-gray);
+  break-after: page;
+  page-break-after: always;
 }
 
 .editor-page .tag-list-line {
@@ -977,6 +992,24 @@ table.selected-object {
   background: #fffdf3;
   border-left: 4px solid var(--purple);
   box-shadow: inset -1px -1px #dfdfdf, inset 1px 1px #fff;
+}
+
+.citation-ref {
+  padding: 0 2px;
+  color: #000080;
+  background: #eef4fa;
+  border-bottom: 1px solid #000080;
+  cursor: default;
+}
+
+.citation-bibliography {
+  margin-top: 28px;
+  border-top: 2px solid #808080;
+  padding-top: 12px;
+}
+
+.citation-bibliography li {
+  margin-bottom: 7px;
 }
 
 .glossary-term h3 {
@@ -1315,6 +1348,210 @@ table.selected-object {
   color: #333;
   font-weight: normal;
   white-space: nowrap;
+}
+
+.citation-editor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.citations-body textarea {
+  resize: vertical;
+}
+
+.citation-list {
+  max-height: 260px;
+  overflow: auto;
+  padding: 4px;
+  background: #fff;
+  box-shadow: inset -1px -1px #fff, inset 1px 1px #808080, inset -2px -2px #dfdfdf, inset 2px 2px #0a0a0a;
+}
+
+.citation-row {
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  min-height: 52px;
+  margin-bottom: 4px;
+  padding: 5px;
+  background: #fff;
+  text-align: left;
+}
+
+.citation-row.active {
+  background: #fff7bf;
+}
+
+.citation-row strong,
+.citation-row small,
+.citation-row span,
+.citation-row em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.citation-row em {
+  color: #000080;
+  font-style: normal;
+}
+
+.page-setup-body,
+.citations-body {
+  overflow: auto;
+}
+
+.print-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.24);
+}
+
+.print-preview-overlay[hidden] {
+  display: none;
+}
+
+.print-preview-window {
+  width: min(1120px, calc(100vw - 36px));
+  height: min(840px, calc(100vh - 36px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.print-preview-body {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 6px;
+}
+
+.print-preview-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  background: var(--app-gray);
+  box-shadow: inset -1px -1px #808080, inset 1px 1px #fff;
+}
+
+.print-preview-toolbar span {
+  margin-right: auto;
+  font-weight: bold;
+}
+
+.print-preview-pages {
+  overflow: auto;
+  display: grid;
+  justify-items: center;
+  gap: 28px;
+  padding: 18px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.35) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.35) 1px, transparent 1px),
+    #9a9a9a;
+  background-size: 18px 18px;
+}
+
+.print-page {
+  position: relative;
+  width: var(--paper-width);
+  height: var(--paper-height);
+  padding: calc(var(--paper-padding-y) + 0.28in) var(--paper-padding-x) calc(var(--paper-padding-y) + 0.35in);
+  overflow: hidden;
+  background: #fff;
+  color: #111;
+  box-shadow: 5px 5px 0 #555;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.print-body {
+  height: 100%;
+  overflow: hidden;
+}
+
+.print-body .widget-actions,
+.print-body .manual-page-break {
+  display: none !important;
+}
+
+.print-header,
+.print-footer,
+.print-page-number {
+  position: absolute;
+  left: var(--paper-padding-x);
+  right: var(--paper-padding-x);
+  min-height: 18px;
+  font: 11px "MS Sans Serif", Arial, sans-serif;
+  color: #333;
+}
+
+.print-header {
+  top: 0.22in;
+}
+
+.print-footer {
+  bottom: 0.22in;
+}
+
+.print-header[data-align="left"],
+.print-footer[data-align="left"] {
+  text-align: left;
+}
+
+.print-header[data-align="center"],
+.print-footer[data-align="center"] {
+  text-align: center;
+}
+
+.print-header[data-align="right"],
+.print-footer[data-align="right"] {
+  text-align: right;
+}
+
+.print-page-number {
+  width: 120px;
+  right: auto;
+  text-align: left;
+}
+
+.print-page-number[data-position="none"] {
+  display: none;
+}
+
+.print-page-number[data-position^="top"] {
+  top: 0.22in;
+}
+
+.print-page-number[data-position^="bottom"] {
+  bottom: 0.22in;
+}
+
+.print-page-number[data-position$="left"] {
+  left: var(--paper-padding-x);
+}
+
+.print-page-number[data-position$="center"] {
+  left: calc(50% - 60px);
+  text-align: center;
+}
+
+.print-page-number[data-position$="right"] {
+  left: auto;
+  right: var(--paper-padding-x);
+  text-align: right;
+}
+
+.print-canvas-image {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
 .widget-actions {
@@ -1695,6 +1932,29 @@ fieldset {
     background: #fff;
   }
 
+  .desktop-shell {
+    display: none !important;
+  }
+
+  .print-preview-overlay {
+    position: static;
+    display: block !important;
+    padding: 0;
+    background: #fff;
+  }
+
+  .print-preview-window,
+  .print-preview-body,
+  .print-preview-pages {
+    display: block;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    padding: 0;
+    background: #fff;
+    box-shadow: none;
+  }
+
   .menu-strip,
   .word-toolbars,
   .binder-window,
@@ -1707,7 +1967,9 @@ fieldset {
   .app-menu,
   .color-menu,
   .phrase-menu,
-  .modal-overlay {
+  .modal-overlay,
+  .print-preview-window > .title-bar,
+  .print-preview-toolbar {
     display: none !important;
   }
 
@@ -1726,9 +1988,22 @@ fieldset {
 
   .retro-widget,
   .image-figure,
-  .editor-page table {
+  .editor-page table,
+  .print-page {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  .print-page {
+    width: var(--paper-width);
+    height: var(--paper-height);
+    margin: 0;
+    box-shadow: none;
+    page-break-after: always;
+  }
+
+  .print-page:last-child {
+    page-break-after: auto;
   }
 
   .selected-object {
