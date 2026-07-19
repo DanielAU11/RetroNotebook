@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' https://unpkg.com https://cdn.jsdelivr.net; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' https://unpkg.com 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Retro Notebook Studio</title>
+    <link rel="stylesheet" href="https://unpkg.com/98.css" />
+    <link rel="stylesheet" href="../node_modules/@react95/icons/icons.css" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script>
+      window.MathJax = {
+        tex: { inlineMath: [["\\(", "\\)"], ["$", "$"]], displayMath: [["\\[", "\\]"]] },
+        svg: { fontCache: "global" }
+      };
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+  </head>
+  <body>
+    <div class="desktop-shell">
+      <nav class="menu-strip" aria-label="Application menu">
+        <button class="menu-item" data-menu-name="file">File</button>
+        <button class="menu-item" data-menu-name="edit">Edit</button>
+        <button class="menu-item" data-menu-name="view">View</button>
+        <button class="menu-item" data-menu-name="insert">Insert</button>
+        <button class="menu-item" data-menu-name="format">Format</button>
+        <button class="menu-item" data-menu-name="tools">Tools</button>
+        <button class="menu-item" data-menu-name="table">Table</button>
+        <button class="menu-item" data-menu-name="study">Study</button>
+        <button class="menu-item" data-menu-name="help">Help</button>
+      </nav>
+      <menu id="appMenu" class="app-menu" hidden></menu>
+
+      <section class="word-toolbars" aria-label="Word style toolbars">
+        <div class="icon-toolbar" role="toolbar" aria-label="Standard toolbar">
+          <button id="newFolderIconBtn" class="tool-button" title="New folder"><span class="icon95 Folder_16x16_4"></span></button>
+          <button id="newPageIconBtn" class="tool-button" title="New page"><span class="icon95 FileText_16x16_4"></span></button>
+          <button id="deletePageIconBtn" class="tool-button" title="Delete page"><span class="icon95 RecycleFull_16x16_4"></span></button>
+          <button id="exportIconBtn" class="tool-button" title="Export notebook"><span class="icon95 Save_16x16_4"></span></button>
+          <button id="printPageBtn" class="tool-button" title="Print page"><span class="icon95 Print_16x16_4"></span></button>
+          <span class="toolbar-separator"></span>
+          <button data-command="undo" class="tool-button" title="Undo"><span class="icon95 ArrowLeft_32x32_4"></span></button>
+          <button data-command="redo" class="tool-button" title="Redo"><span class="icon95 ArrowRight_32x32_4"></span></button>
+          <span class="toolbar-separator"></span>
+          <button id="equationIconBtn" class="tool-button equation-button" title="Insert selected equation"><span class="sigma-icon">&Sigma;</span></button>
+          <select id="equationSelect" class="equation-select" title="Saved equations"></select>
+          <button id="tableIconBtn" class="tool-button" title="Insert table"><span class="pixel-icon icon-table-tool"></span></button>
+          <button id="chartIconBtn" class="tool-button" title="Insert chart"><span class="pixel-icon icon-chart-tool"></span></button>
+          <button id="graphIconBtn" class="tool-button" title="Insert data graph"><span class="pixel-icon icon-graph-tool"></span></button>
+          <button id="drawIconBtn" class="tool-button" title="Insert drawing pad"><span class="icon95 Pen_16x16_4"></span></button>
+          <button id="dividerIconBtn" class="tool-button" title="Insert divider"><span class="pixel-icon icon-divider-tool"></span></button>
+          <button id="glossaryIconBtn" class="tool-button" title="Insert glossary"><span class="pixel-icon icon-glossary-tool"></span></button>
+          <button id="makeCardIconBtn" class="tool-button" title="Create flashcard"><span class="icon95 HelpBook_16x16_4"></span></button>
+        </div>
+        <div class="format-toolbar" role="toolbar" aria-label="Formatting toolbar">
+          <select id="styleSelect" title="Style">
+            <option value="p">Normal</option>
+            <option value="h1">Heading 1</option>
+            <option value="h2">Heading 2</option>
+            <option value="h3">Glossary Term</option>
+            <option value="blockquote">Quote</option>
+          </select>
+          <select id="fontSelect" title="Font">
+            <option value="Times New Roman">Times New Roman</option>
+            <option value="Arial">Arial</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Georgia">Georgia</option>
+          </select>
+          <select id="fontSizeSelect" title="Font size">
+            <option value="2">10</option>
+            <option value="3" selected>12</option>
+            <option value="4">14</option>
+            <option value="5">18</option>
+            <option value="6">24</option>
+          </select>
+          <select id="paperSizeSelect" class="paper-size-select" title="Paper size">
+            <option value="letter">Letter</option>
+            <option value="a4">A4</option>
+            <option value="legal">Legal</option>
+            <option value="executive">Executive</option>
+            <option value="index">Index Card</option>
+          </select>
+          <span class="toolbar-separator"></span>
+          <button data-command="bold" class="tool-button" title="Bold"><span class="icon95 Bold_16x16_4"></span></button>
+          <button data-command="italic" class="tool-button" title="Italic"><span class="icon95 Italic_16x16_4"></span></button>
+          <button data-command="underline" class="tool-button" title="Underline"><span class="pixel-icon icon-underline"></span></button>
+          <button data-command="strikeThrough" class="tool-button" title="Strikethrough"><span class="pixel-icon icon-strike"></span></button>
+          <button data-command="subscript" class="tool-button" title="Subscript"><span class="pixel-icon icon-subscript"></span></button>
+          <button data-command="superscript" class="tool-button" title="Superscript"><span class="pixel-icon icon-superscript"></span></button>
+          <button id="textColorBtn" class="tool-button color-tool-button" title="Text color"><span class="pixel-icon icon-text-color-tool"></span><span id="textColorChip" class="color-chip"></span></button>
+          <input id="textColorInput" class="hidden-color-input" type="color" value="#111111" />
+          <button id="highlightColorBtn" class="tool-button color-tool-button" title="Highlight"><span class="pixel-icon icon-highlight-tool"></span><span id="highlightColorChip" class="color-chip highlight-chip"></span></button>
+          <input id="highlightColorInput" class="hidden-color-input" type="color" value="#fff7a8" />
+          <span class="toolbar-separator"></span>
+          <button data-command="justifyLeft" class="tool-button" title="Align left"><span class="icon95 Left_16x16_4"></span></button>
+          <button data-command="justifyCenter" class="tool-button" title="Center"><span class="icon95 Centre_16x16_4"></span></button>
+          <button data-command="justifyRight" class="tool-button" title="Align right"><span class="icon95 Right_16x16_4"></span></button>
+          <button data-command="insertUnorderedList" class="tool-button" title="Bulleted list"><span class="icon95 Listicon_16x16_4"></span></button>
+          <button data-command="insertOrderedList" class="tool-button" title="Numbered list"><span class="icon95 OrderAs_16x16_4"></span></button>
+          <select id="lineSpacingSelect" class="line-spacing-select" title="Line spacing">
+            <option value="">Line</option>
+            <option value="1">1.0</option>
+            <option value="1.15">1.15</option>
+            <option value="1.5">1.5</option>
+            <option value="2">2.0</option>
+          </select>
+          <button id="taskIconBtn" class="tool-button" title="Checklist"><span class="pixel-icon icon-check"></span></button>
+          <span class="toolbar-separator"></span>
+          <button id="dictationBtn" class="tool-button" title="Dictation"><span class="icon95 Mic_16x16_4"></span></button>
+          <button id="speakTextBtn" class="tool-button" title="Read selected text"><span class="icon95 MediaAudio_16x16_4"></span></button>
+        </div>
+      </section>
+
+      <main class="workbench">
+        <aside class="window binder-window">
+          <div class="title-bar">
+            <div class="title-bar-text">Notebook Binder</div>
+          </div>
+          <div class="window-body binder-body">
+            <div class="field-row-stacked">
+              <label for="notebookSelect">Notebook</label>
+              <div class="notebook-select-row">
+                <span id="notebookColorPreview" class="notebook-color-preview"></span>
+                <select id="notebookSelect"></select>
+              </div>
+            </div>
+            <div class="button-row binder-buttons">
+              <button id="newNotebookBtn">New</button>
+              <button id="renameNotebookBtn">Rename</button>
+              <button id="notebookColorBtn">Color</button>
+              <button id="deleteNotebookBtn">Delete</button>
+            </div>
+            <div class="field-row-stacked">
+              <label for="searchInput">Find pages</label>
+              <div class="search-row">
+                <input id="searchInput" type="search" placeholder="Search title, tags, body" />
+                <button id="findIconBtn" class="tool-button" title="Find"><span class="icon95 FileFind_16x16_4"></span></button>
+              </div>
+              <div id="searchResults" class="search-results" hidden></div>
+            </div>
+            <div class="field-row-stacked">
+              <label>Tag Library</label>
+              <div id="tagLibrary" class="tag-library"></div>
+            </div>
+            <div class="button-row binder-buttons">
+              <button id="newTagBtn">New Tag</button>
+              <button id="insertTagListBtn">Tag List</button>
+            </div>
+            <ul class="binder-tree" id="pageList"></ul>
+          </div>
+        </aside>
+
+        <section class="window editor-window" id="writePanel">
+          <div class="title-bar compact-title-bar">
+            <div class="title-bar-text" id="editorWindowTitle">Page</div>
+          </div>
+          <div class="window-body editor-body">
+            <div class="page-meta">
+              <input id="pageTitleInput" class="page-title-input" placeholder="Untitled page" />
+              <input id="tagInput" placeholder="tags: math, biology, exam-1" />
+            </div>
+            <article id="editor" class="editor-page" contenteditable="true" spellcheck="true"></article>
+          </div>
+        </section>
+
+        <div id="toolResizeHandle" class="tool-resize-handle" title="Drag to resize tools"></div>
+
+        <aside class="window tool-sidebar">
+          <div class="title-bar compact-title-bar">
+            <div class="title-bar-text">Tools</div>
+          </div>
+          <menu class="side-tabs" role="tablist" aria-label="Workspace tools">
+            <li role="tab" class="side-tab active" data-main-tab="dashboard"><a href="#">Overview</a></li>
+            <li role="tab" class="side-tab" data-main-tab="latex"><a href="#">LaTeX</a></li>
+            <li role="tab" class="side-tab" data-main-tab="insert"><a href="#">Templates</a></li>
+            <li role="tab" class="side-tab" data-main-tab="phrases"><a href="#">Phrases</a></li>
+            <li role="tab" class="side-tab" data-main-tab="flashcards"><a href="#">Cards</a></li>
+            <li role="tab" class="side-tab" data-main-tab="review"><a href="#">Review</a></li>
+          </menu>
+          <div class="tool-panel-stack">
+          <section class="main-panel active" id="dashboardPanel">
+            <div class="title-bar">
+              <div class="title-bar-text">Overview</div>
+            </div>
+            <div class="window-body dashboard-body">
+              <div class="dashboard-grid">
+                <fieldset>
+                  <legend>Today</legend>
+                  <div class="metric-grid">
+                    <span>Pages</span><strong id="dashPageCount">0</strong>
+                    <span>Words</span><strong id="dashWordCount">0</strong>
+                    <span>Due cards</span><strong id="dashDueCount">0</strong>
+                    <span>Notebooks</span><strong id="dashNotebookCount">0</strong>
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend>Current Page</legend>
+                  <div class="metric-grid">
+                    <span>Words</span><strong id="wordCount">0</strong>
+                    <span>Characters</span><strong id="charCount">0</strong>
+                    <span>Cards</span><strong id="cardCount">0</strong>
+                    <span>Next due</span><strong id="nextDue">None</strong>
+                    <span>Updated</span><strong id="updatedAt">Never</strong>
+                  </div>
+                </fieldset>
+                <fieldset class="wide-fieldset">
+                  <legend>Notebook Overview</legend>
+                  <div id="notebookDashboard" class="dashboard-list"></div>
+                </fieldset>
+                <fieldset>
+                  <legend>Due Flashcards</legend>
+                  <div class="card-stack" id="dueCardList"></div>
+                </fieldset>
+                <fieldset>
+                  <legend>Recent Pages</legend>
+                  <div id="recentPagesList" class="dashboard-list"></div>
+                </fieldset>
+              </div>
+            </div>
+          </section>
+
+          <section class="main-panel" id="latexPanel">
+            <div class="window-body latex-body">
+              <fieldset>
+                <legend>Equation Composer</legend>
+                <div class="latex-grid">
+                  <div class="field-row-stacked">
+                    <label for="latexNameInput">Name</label>
+                    <input id="latexNameInput" placeholder="Derivative rule" />
+                    <label for="latexInput">LaTeX</label>
+                    <textarea id="latexInput" rows="8">\\frac{d}{dx}x^2 = 2x</textarea>
+                  </div>
+                  <div class="field-row-stacked">
+                    <label>Preview</label>
+                    <div id="latexPreview" class="latex-preview"></div>
+                  </div>
+                </div>
+                <div class="field-row latex-actions">
+                  <label><input id="latexDisplayMode" type="checkbox" checked /> Display equation</label>
+                  <button id="previewLatexBtn">Preview</button>
+                  <button id="insertLatexBtn">Insert Into Page</button>
+                  <button id="saveLatexSnippetBtn">Save Equation</button>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>Saved Equations</legend>
+                <div id="latexSnippetList" class="snippet-list"></div>
+              </fieldset>
+            </div>
+          </section>
+
+          <section class="main-panel" id="insertPanel">
+            <div class="window-body insert-body">
+              <fieldset>
+                <legend>Built-In Templates</legend>
+                <div class="tool-grid">
+                  <button data-template="cornell"><span class="icon95 Write1_32x32_4"></span><strong>Cornell Notes</strong><small>Load editable draft</small></button>
+                  <button data-template="lecture"><span class="icon95 Notepad_32x32_4"></span><strong>Lecture Outline</strong><small>Load editable draft</small></button>
+                  <button data-template="proof"><span class="icon95 Calculator_32x32_4"></span><strong>Proof Sheet</strong><small>Load editable draft</small></button>
+                  <button data-template="lab"><span class="icon95 Progman23_32x32_4"></span><strong>Lab Report</strong><small>Load editable draft</small></button>
+                  <button data-template="anki"><span class="icon95 HelpBook_32x32_4"></span><strong>Flashcard Drill</strong><small>Load editable draft</small></button>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>Custom Templates</legend>
+                <div class="template-workspace">
+                  <div id="customTemplateList" class="dashboard-list"></div>
+                  <div class="template-editor-panel">
+                    <div class="field-row-stacked">
+                      <label for="templateNameInput">Name</label>
+                      <input id="templateNameInput" placeholder="Case study note" />
+                    </div>
+                    <label for="templateEditor">Template Body</label>
+                    <div class="mini-format-toolbar rich-mini-toolbar" data-template-toolbar>
+                      <button data-template-command="bold" title="Bold"><b>B</b></button>
+                      <button data-template-command="italic" title="Italic"><i>I</i></button>
+                      <button data-template-command="underline" title="Underline"><u>U</u></button>
+                      <button data-template-command="insertUnorderedList" title="Bulleted list"><span class="icon95 Listicon_16x16_4"></span></button>
+                      <button data-template-command="insertOrderedList" title="Numbered list"><span class="icon95 OrderAs_16x16_4"></span></button>
+                      <button data-template-tool="textColor" title="Text color"><span class="pixel-icon icon-text-color-tool"></span></button>
+                      <button data-template-tool="highlight" title="Highlight"><span class="pixel-icon icon-highlight-tool"></span></button>
+                      <button data-template-tool="equation" title="Equation"><span class="sigma-icon">&Sigma;</span></button>
+                      <button data-template-tool="table" title="Table"><span class="pixel-icon icon-table-tool"></span></button>
+                      <button data-template-tool="chart" title="Chart"><span class="pixel-icon icon-chart-tool"></span></button>
+                      <button data-template-tool="graph" title="Graph"><span class="pixel-icon icon-graph-tool"></span></button>
+                      <button data-template-tool="divider" title="Divider"><span class="pixel-icon icon-divider-tool"></span></button>
+                    </div>
+                    <div id="templateEditor" class="template-editor" contenteditable="true"></div>
+                    <div class="button-row right">
+                      <button id="newTemplateBtn">New Template</button>
+                      <button id="captureTemplateBtn">Capture Page</button>
+                      <button id="saveTemplateBtn">Save Template</button>
+                    </div>
+                  </div>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>Document Profile</legend>
+                <div class="profile-grid">
+                  <label for="documentType">Document type</label>
+                  <select id="documentType">
+                    <option value="lecture">Lecture note</option>
+                    <option value="proof">Proof / derivation</option>
+                    <option value="lab">Lab record</option>
+                    <option value="essay">Essay draft</option>
+                  </select>
+                  <label for="learningGoal">Learning objective</label>
+                  <input id="learningGoal" placeholder="e.g. derive Bayes' rule from memory" />
+                </div>
+                <button id="applyProfileBtn">Apply Profile</button>
+              </fieldset>
+            </div>
+          </section>
+
+          <section class="main-panel" id="phrasesPanel">
+            <div class="window-body phrases-body">
+              <div class="phrase-grid">
+                <fieldset>
+                  <legend>Phrase Library</legend>
+                  <div id="smartPhraseList" class="dashboard-list"></div>
+                </fieldset>
+                <fieldset>
+                  <legend>Phrase Editor</legend>
+                  <div class="field-row-stacked">
+                    <label for="phraseTriggerInput">Trigger</label>
+                    <input id="phraseTriggerInput" placeholder="/summary" />
+                  </div>
+                  <label for="phraseExpansionEditor">Expansion</label>
+                  <div id="phraseExpansionEditor" class="template-editor phrase-editor" contenteditable="true"></div>
+                  <div class="button-row right">
+                    <button id="newPhraseBtn">New Phrase</button>
+                    <button id="deletePhraseBtn">Delete</button>
+                    <button id="savePhraseBtn">Save Phrase</button>
+                  </div>
+                </fieldset>
+              </div>
+            </div>
+          </section>
+
+          <section class="main-panel" id="flashcardsPanel">
+            <div class="window-body study-body">
+              <fieldset>
+                <legend>Create Flashcard</legend>
+                <div class="mini-format-toolbar" data-card-toolbar>
+                  <button data-card-command="bold" title="Bold"><b>B</b></button>
+                  <button data-card-command="italic" title="Italic"><i>I</i></button>
+                  <button data-card-command="underline" title="Underline"><u>U</u></button>
+                  <button data-card-command="insertUnorderedList" title="Bulleted list"><span class="icon95 Listicon_16x16_4"></span></button>
+                  <button data-card-command="insertOrderedList" title="Numbered list"><span class="icon95 OrderAs_16x16_4"></span></button>
+                  <button data-card-command="removeFormat" title="Clear formatting">Clear</button>
+                  <button id="cardEquationBtn" title="Insert equation"><span class="sigma-icon">&Sigma;</span></button>
+                </div>
+                <div class="field-row-stacked">
+                  <label for="cardFront">Front</label>
+                  <div id="cardFront" class="card-editor" contenteditable="true"></div>
+                </div>
+                <div class="field-row-stacked">
+                  <label for="cardBack">Back</label>
+                  <div id="cardBack" class="card-editor" contenteditable="true"></div>
+                </div>
+                <div class="button-row right">
+                  <label class="inline-check"><input id="reverseCardToggle" type="checkbox" /> Reverse</label>
+                  <button id="makeCardFromSelectionBtn">From Selection</button>
+                  <button id="clozeCardBtn">Cloze</button>
+                  <button id="swapCardBtn">Swap</button>
+                  <button id="clearCardBtn">Clear</button>
+                  <button id="addCardBtn">Add Card</button>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>Cards On This Page</legend>
+                <div id="pageCards" class="card-stack"></div>
+              </fieldset>
+            </div>
+          </section>
+
+          <section class="main-panel" id="reviewPanel">
+            <div class="window-body review-body">
+              <div class="review-card" id="reviewCard">
+                <div class="review-empty">No cards due. Create notes, then turn them into cards.</div>
+              </div>
+              <div class="review-buttons">
+                <button data-grade="again">Again</button>
+                <button data-grade="hard">Hard</button>
+                <button data-grade="good">Good</button>
+                <button data-grade="easy">Easy</button>
+              </div>
+            </div>
+          </section>
+          </div>
+        </aside>
+      </main>
+
+      <footer class="status-bar">
+        <p class="status-bar-field" id="statusText">Ready.</p>
+        <p class="status-bar-field" id="countText">0 words / 0 chars</p>
+        <p class="status-bar-field">98.css + Electron</p>
+        <p class="status-bar-field" id="clockText"></p>
+      </footer>
+    </div>
+
+    <div id="modalOverlay" class="modal-overlay" hidden>
+      <section class="window retro-dialog" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+        <div class="title-bar">
+          <div class="title-bar-text" id="dialogTitle">Retro Notebook Studio</div>
+          <div class="title-bar-controls">
+            <button id="dialogCloseBtn" aria-label="Close"></button>
+          </div>
+        </div>
+        <div class="window-body dialog-body">
+          <div class="dialog-message-row">
+            <span id="dialogIcon" class="icon95 HelpBook_32x32_4"></span>
+            <div class="dialog-copy">
+              <p id="dialogMessage"></p>
+              <div id="dialogFields" class="dialog-fields"></div>
+            </div>
+          </div>
+          <div id="dialogButtons" class="dialog-buttons"></div>
+        </div>
+      </section>
+    </div>
+
+    <menu id="contextMenu" class="context-menu" hidden>
+      <button data-context-action="cut">Cut</button>
+      <button data-context-action="copy">Copy</button>
+      <button data-context-action="copyImage">Copy Image</button>
+      <button data-context-action="paste">Paste</button>
+      <button data-context-action="pasteImage">Paste Image</button>
+      <hr />
+      <button data-context-action="editObject">Edit Object</button>
+      <button data-context-action="deleteObject">Delete Object</button>
+      <hr />
+      <button data-context-action="selectAll">Select All</button>
+    </menu>
+
+    <menu id="binderContextMenu" class="context-menu binder-context-menu" hidden>
+      <button data-binder-action="favorite">Favorite</button>
+      <button data-binder-action="newPage">New Page Here</button>
+      <hr />
+      <button data-binder-action="delete">Delete</button>
+    </menu>
+
+    <menu id="colorMenu" class="color-menu" hidden></menu>
+    <input id="imageFileInput" class="hidden-file-input" type="file" accept="image/*" />
+    <menu id="phraseMenu" class="phrase-menu" hidden></menu>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>
