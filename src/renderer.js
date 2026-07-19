@@ -82,6 +82,7 @@ let phraseRange = null;
 let activeRichEditor = null;
 let recognition = null;
 let isDictating = false;
+const pdfObjectUrls = new Map();
 
 document.addEventListener("DOMContentLoaded", () => {
   bindElements();
@@ -727,7 +728,7 @@ function normalizeState(nextState, options = {}) {
   nextState.citationStyle = CITATION_STYLES.includes(nextState.citationStyle) ? nextState.citationStyle : "apa";
   nextState.citationCustomFormat = nextState.citationCustomFormat || "{authors}. {title}. {journal}. {year}. {doi} {url}";
   nextState.citations = Array.isArray(nextState.citations)
-    ? nextState.citations.map(normalizeCitation).filter((citation) => citation.title || citation.authors || citation.url || citation.doi || citation.pdfName)
+    ? nextState.citations.map(normalizeCitation).filter((citation) => citation.title || citation.authors || citation.url || citation.doi || citation.pdfName || citation.pdfBlobId)
     : [];
   nextState.activeNotebook = nextState.notebooks.includes(nextState.activeNotebook)
     ? nextState.activeNotebook
@@ -2252,10 +2253,10 @@ function renderPageGuides() {
     if (top < 32 || top > bodyRect.height - 8) continue;
     const guide = document.createElement("div");
     guide.className = "page-guide";
-    guide.style.left = `${editorRect.left - bodyRect.left}px`;
-    guide.style.width = `${editorRect.width}px`;
+    guide.style.left = `${editorRect.right - bodyRect.left - 64}px`;
+    guide.style.width = "58px";
     guide.style.top = `${top}px`;
-    guide.innerHTML = `<span>Page ${pageIndex + 1}</span>`;
+    guide.textContent = `Page ${pageIndex + 1}`;
     els.pageGuides.appendChild(guide);
   }
 }
@@ -2766,7 +2767,7 @@ function renderCitationManager() {
 }
 
 function blankCitation() {
-  return { id: "", title: "", authors: "", year: "", journal: "", doi: "", url: "", notes: "", pdfName: "", pdfDataUrl: "" };
+  return { id: "", title: "", authors: "", year: "", journal: "", doi: "", url: "", notes: "", pdfName: "", pdfDataUrl: "", pdfBlobId: "" };
 }
 
 function loadCitationDraft(citation) {
@@ -2781,13 +2782,30 @@ function loadCitationDraft(citation) {
   renderCitationPdfPreview(citation);
 }
 
-function renderCitationPdfPreview(citation) {
+async function renderCitationPdfPreview(citation) {
   if (!els.citationPdfPreview || !els.citationPdfEmpty) return;
   const src = citation?.pdfDataUrl || "";
-  els.citationPdfPreview.src = src || "about:blank";
-  els.citationPdfPreview.parentElement.classList.toggle("has-pdf", Boolean(src));
-  els.citationPdfEmpty.textContent = citation?.pdfName && !src
-    ? `PDF "${citation.pdfName}" is linked by filename but was too large to embed.`
+  if (src) {
+    els.citationPdfPreview.src = src;
+    els.citationPdfPreview.parentElement.classList.add("has-pdf");
+    return;
+  }
+  if (citation?.pdfBlobId) {
+    els.citationPdfEmpty.textContent = `Loading "${citation.pdfName || "PDF"}"...`;
+    const blob = await getPdfBlob(citation.pdfBlobId);
+    if (blob) {
+      if (pdfObjectUrls.has(citation.pdfBlobId)) URL.revokeObjectURL(pdfObjectUrls.get(citation.pdfBlobId));
+      const objectUrl = URL.createObjectURL(blob);
+      pdfObjectUrls.set(citation.pdfBlobId, objectUrl);
+      els.citationPdfPreview.src = objectUrl;
+      els.citationPdfPreview.parentElement.classList.add("has-pdf");
+      return;
+    }
+  }
+  els.citationPdfPreview.src = "about:blank";
+  els.citationPdfPreview.parentElement.classList.remove("has-pdf");
+  els.citationPdfEmpty.textContent = citation?.pdfName
+    ? `Reattach "${citation.pdfName}" to restore the preview.`
     : "Attach a PDF to preview it here.";
 }
 
@@ -2866,35 +2884,37 @@ async function autoFillCitation() {
   if (draft.pdfDataUrl || draft.pdfName) {
     Object.assign(metadata, inferCitationFromPdf(draft.pdfDataUrl, draft.pdfName));
   }
+  if (draft.pdfBlobId && !draft.pdfDataUrl) {
+    const blob = await getPdfBlob(draft.pdfBlobId);
+    if (blob) Object.assign(metadata, inferCitationFromPdfText(await readFileHeadAsText(blob), draft.pdfName));
+  }
   Object.assign(metadata, inferCitationFromUrl(draft.url || metadata.url || ""));
   const merged = mergeCitationMetadata(draft, metadata);
   loadCitationDraft(merged);
   setStatus(Object.keys(metadata).length ? "Citation fields auto-filled. Review and Save when ready." : "No metadata found. Add more fields or check the link.");
 }
 
-function attachCitationPdf() {
+async function attachCitationPdf() {
   const file = els.citationPdfInput.files?.[0];
   if (!file) return;
   const current = readCitationDraft();
   current.pdfName = file.name;
-  const finish = (dataUrl = "") => {
-    current.pdfDataUrl = dataUrl;
-    Object.assign(current, mergeCitationMetadata(current, inferCitationFromPdf(dataUrl, file.name)));
-    const index = state.citations.findIndex((item) => item.id === current.id);
-    if (index >= 0) state.citations[index] = current;
-    else state.citations.push(current);
-    selectedCitationId = current.id;
-    saveState();
-    renderCitationManager();
-    setStatus(dataUrl ? `Attached "${file.name}".` : `Linked PDF filename "${file.name}" (file too large for local embedding).`);
-  };
-  if (file.size > 4 * 1024 * 1024) {
-    finish("");
-    return;
+  current.pdfBlobId = current.pdfBlobId || current.id || uid();
+  current.pdfDataUrl = "";
+  const text = await readFileHeadAsText(file);
+  Object.assign(current, mergeCitationMetadata(current, inferCitationFromPdfText(text, file.name)));
+  try {
+    await putPdfBlob(current.pdfBlobId, file);
+  } catch {
+    setStatus("PDF storage failed. The citation was saved without a preview.");
   }
-  const reader = new FileReader();
-  reader.addEventListener("load", () => finish(reader.result));
-  reader.readAsDataURL(file);
+  const index = state.citations.findIndex((item) => item.id === current.id);
+  if (index >= 0) state.citations[index] = current;
+  else state.citations.push(current);
+  selectedCitationId = current.id;
+  saveState();
+  renderCitationManager();
+  setStatus(`Attached "${file.name}" for preview.`);
 }
 
 function insertSelectedCitation() {
@@ -3059,12 +3079,16 @@ function parseHtmlCitationMetadata(html, fallbackUrl) {
 function inferCitationFromPdf(dataUrl, fileName) {
   const metadata = inferCitationFromFilename(fileName);
   const raw = pdfDataUrlToText(dataUrl);
-  if (!raw) return metadata;
+  return inferCitationFromPdfText(raw, fileName, metadata);
+}
+
+function inferCitationFromPdfText(raw, fileName, fallback = inferCitationFromFilename(fileName)) {
+  if (!raw) return fallback;
   return {
-    ...metadata,
-    title: pdfInfoValue(raw, "Title") || metadata.title,
-    authors: pdfInfoValue(raw, "Author") || metadata.authors,
-    year: yearFromDate(pdfInfoValue(raw, "CreationDate")) || metadata.year
+    ...fallback,
+    title: pdfInfoValue(raw, "Title") || fallback.title,
+    authors: pdfInfoValue(raw, "Author") || fallback.authors,
+    year: yearFromDate(pdfInfoValue(raw, "CreationDate")) || fallback.year
   };
 }
 
@@ -3112,6 +3136,45 @@ function pdfDataUrlToText(dataUrl) {
 function pdfInfoValue(raw, key) {
   const match = raw.match(new RegExp(`/${key}\\s*\\((.*?)\\)`, "s"));
   return match ? match[1].replace(/\\([()\\])/g, "$1").replace(/\s+/g, " ").trim() : "";
+}
+
+function readFileHeadAsText(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => resolve(""));
+    reader.readAsText(file.slice(0, 512000));
+  });
+}
+
+function pdfDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("retro-notebook-pdfs", 1);
+    request.onupgradeneeded = () => request.result.createObjectStore("pdfs");
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function putPdfBlob(id, blob) {
+  const db = await pdfDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("pdfs", "readwrite");
+    tx.objectStore("pdfs").put(blob, id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function getPdfBlob(id) {
+  if (!id) return null;
+  const db = await pdfDb();
+  return new Promise((resolve) => {
+    const tx = db.transaction("pdfs", "readonly");
+    const request = tx.objectStore("pdfs").get(id);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => resolve(null);
+  });
 }
 
 function extractDoi(value) {
@@ -4918,7 +4981,8 @@ function normalizeCitation(citation = {}) {
     url: String(citation.url || "").trim().slice(0, 500),
     notes: String(citation.notes || "").trim().slice(0, 1200),
     pdfName: normalizeNotebookName(citation.pdfName).slice(0, 220),
-    pdfDataUrl: String(citation.pdfDataUrl || "")
+    pdfDataUrl: String(citation.pdfDataUrl || ""),
+    pdfBlobId: String(citation.pdfBlobId || "")
   };
 }
 

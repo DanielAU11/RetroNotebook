@@ -27,7 +27,7 @@ The interface uses [98.css](https://unpkg.com/98.css) with Windows 98-style icon
 - Dictation and text-to-speech support when available in the Electron runtime.
 - Citation manager inspired by EndNote and Citation Machine for saving article metadata, links, DOI values, PDF attachments, inline citations, and ordered bibliographies.
 - Citation Auto Fill can retrieve DOI/Crossref metadata, read common webpage citation meta tags, infer details from URLs, and extract basic embedded PDF title/author/year metadata when available.
-- Attached PDFs can be previewed inside the citation manager.
+- Attached PDFs are stored in local browser storage and can be previewed inside the citation manager, including large PDFs.
 - Citation styles include APA, MLA, Chicago, Vancouver, AMA, and a custom template format.
 - Local autosave through browser storage plus JSON export for backups.
 

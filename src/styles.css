@@ -551,7 +551,7 @@ button {
 
 .section-tab,
 .side-tab {
-  padding: 4px 8px 5px;
+  padding: 3px 6px 4px;
   background: var(--app-gray);
   box-shadow: inset -1px 0 #0a0a0a, inset 1px 1px #fff, inset -2px 0 #808080, inset 2px 2px #dfdfdf;
 }
@@ -567,8 +567,18 @@ button {
 
 .section-tab a,
 .side-tab a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: #111;
   text-decoration: none;
+  white-space: nowrap;
+}
+
+.side-tab .icon95 {
+  width: 16px;
+  height: 16px;
+  transform: none;
 }
 
 .workbench {
@@ -891,20 +901,14 @@ button {
 
 .page-guide {
   position: absolute;
-  height: 0;
-  border-top: 2px dashed #000080;
-  box-shadow: 0 1px #fff;
-}
-
-.page-guide span {
-  position: absolute;
-  right: 8px;
-  top: -10px;
+  height: 17px;
   padding: 1px 6px;
   color: #000080;
   background: #fff7bf;
   border: 1px solid #000080;
   font: 11px "MS Sans Serif", Arial, sans-serif;
+  text-align: center;
+  box-shadow: 1px 1px #808080;
 }
 
 .editor-page:empty::before {
@@ -1414,14 +1418,15 @@ table.selected-object {
 
 .pdf-preview-shell {
   position: relative;
-  min-height: 260px;
+  height: clamp(260px, 48vh, 720px);
+  min-height: 220px;
   background: #fff;
   box-shadow: inset -1px -1px #fff, inset 1px 1px #808080, inset -2px -2px #dfdfdf, inset 2px 2px #0a0a0a;
 }
 
 .pdf-preview-shell iframe {
   width: 100%;
-  height: 320px;
+  height: 100%;
   display: block;
   border: 0;
   background: #fff;
