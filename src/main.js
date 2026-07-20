@@ -21,6 +21,28 @@ ipcMain.handle("citation:fetchText", async (_event, rawUrl) => {
   }
 });
 
+ipcMain.handle("spellcheck:replace", (event, suggestion) => {
+  const replacement = String(suggestion || "").trim();
+  if (!replacement) return false;
+  try {
+    event.sender.replaceMisspelling(replacement);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
+ipcMain.handle("spellcheck:add", (event, word) => {
+  const value = String(word || "").trim();
+  if (!value) return false;
+  try {
+    event.sender.session.addWordToSpellCheckerDictionary(value);
+    return true;
+  } catch {
+    return false;
+  }
+});
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1440,
@@ -35,11 +57,17 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      spellcheck: true
     }
   });
   windows.add(win);
   win.on("closed", () => windows.delete(win));
+  try {
+    win.webContents.session.setSpellCheckerLanguages(["en-US"]);
+  } catch {
+    // Keep startup resilient on platforms where spellchecker languages are managed by the OS.
+  }
 
   win.loadFile(path.join(__dirname, "index.html"));
   win.once("ready-to-show", () => win.show());
@@ -47,6 +75,16 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  win.webContents.on("context-menu", (_event, params) => {
+    win.webContents.send("spellcheck:context", {
+      word: params.misspelledWord || "",
+      suggestions: (params.dictionarySuggestions || []).slice(0, 6),
+      x: params.x,
+      y: params.y,
+      isEditable: Boolean(params.isEditable)
+    });
   });
 }
 

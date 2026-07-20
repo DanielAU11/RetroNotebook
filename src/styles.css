@@ -203,6 +203,43 @@ button {
   color: #fff;
 }
 
+.symbol-menu {
+  position: fixed;
+  z-index: 92;
+  width: 168px;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--app-gray);
+  box-shadow: inset -1px -1px #0a0a0a, inset 1px 1px #fff, inset -2px -2px #808080, inset 2px 2px #dfdfdf;
+}
+
+.symbol-menu[hidden] {
+  display: none;
+}
+
+.symbol-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+}
+
+.symbol-quick-grid button,
+.symbol-recent-row button,
+.symbol-grid-large button {
+  min-width: 0;
+  height: 26px;
+  padding: 1px;
+  font: 18px "Times New Roman", serif;
+  line-height: 20px;
+}
+
+.symbol-more-command {
+  width: 100%;
+  margin-top: 6px;
+  text-align: left;
+}
+
 .auto-color-box {
   width: 14px;
   height: 14px;
@@ -267,6 +304,11 @@ button {
 
 .sigma-icon {
   font: bold 16px "Times New Roman", serif;
+  line-height: 14px;
+}
+
+.omega-icon {
+  font: bold 17px "Times New Roman", serif;
   line-height: 14px;
 }
 
@@ -343,6 +385,27 @@ button {
   height: 28px;
   transform: scale(1.35);
   transform-origin: center;
+}
+
+.icon-spellcheck-tool::before {
+  content: "A";
+  position: absolute;
+  left: 1px;
+  top: 0;
+  color: #000;
+  font: bold 13px "Times New Roman", serif;
+}
+
+.icon-spellcheck-tool::after {
+  content: "";
+  position: absolute;
+  right: 1px;
+  bottom: 2px;
+  width: 8px;
+  height: 4px;
+  border-left: 2px solid #008000;
+  border-bottom: 2px solid #008000;
+  transform: rotate(-45deg);
 }
 
 .icon-underline::after {
@@ -1323,7 +1386,6 @@ table.selected-object {
 .card-editor table,
 .print-body table {
   border-collapse: collapse;
-  table-layout: fixed;
   background: #fff;
   margin: 10px 0;
   max-width: 100%;
@@ -1340,9 +1402,33 @@ table.selected-object {
 .print-body td {
   border: 1px solid #808080;
   padding: 4px 6px;
-  min-width: 0;
+  min-width: 36px;
+  min-height: 22px;
+  white-space: normal;
   overflow-wrap: anywhere;
+  word-break: normal;
   vertical-align: top;
+  position: relative;
+}
+
+.editor-page th,
+.template-editor th,
+.card-editor th,
+.print-body th {
+  background: #d9e8ff;
+  font-weight: bold;
+}
+
+.resizing-table,
+.resizing-table * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+.resizing-table-row,
+.resizing-table-row * {
+  cursor: row-resize !important;
+  user-select: none;
 }
 
 .template-editor thead,
@@ -1722,11 +1808,21 @@ table.selected-object {
 }
 
 .latex-preview {
-  min-height: 160px;
-  padding: 12px;
+  min-height: 230px;
+  padding: 18px;
   background: #fff;
+  font-size: 18px;
   box-shadow: inset -1px -1px #fff, inset 1px 1px #808080, inset -2px -2px #dfdfdf, inset 2px 2px #0a0a0a;
   overflow: auto;
+}
+
+.latex-help-link {
+  margin: 8px 0 0;
+  text-align: right;
+}
+
+.latex-help-link a {
+  color: #000080;
 }
 
 .latex-actions {
@@ -1768,6 +1864,11 @@ table.selected-object {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
+}
+
+.library-search {
+  width: 100%;
+  margin: 0 0 6px;
 }
 
 .template-editor-panel {
@@ -2366,6 +2467,10 @@ fieldset {
   width: min(760px, calc(100vw - 24px));
 }
 
+.retro-dialog.has-symbol {
+  width: min(680px, calc(100vw - 24px));
+}
+
 .dialog-body {
   min-height: 96px;
 }
@@ -2424,9 +2529,142 @@ fieldset {
   box-shadow: inset -1px -1px #fff, inset 1px 1px #808080, inset -2px -2px #dfdfdf, inset 2px 2px #0a0a0a;
 }
 
+.insert-table-dialog {
+  display: grid;
+  gap: 8px;
+}
+
+.insert-table-dialog fieldset {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 92px;
+  gap: 6px;
+}
+
+.insert-table-dialog fieldset:nth-of-type(2) {
+  display: grid;
+  grid-template-columns: 20px minmax(130px, 1fr) 92px;
+  align-items: center;
+}
+
+.insert-table-dialog .table-fit-option {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 20px minmax(130px, 1fr) 92px;
+  gap: 6px;
+  align-items: center;
+}
+
+.insert-table-dialog .table-fit-option input[type="radio"] {
+  width: auto;
+}
+
+.insert-table-dialog .table-fit-option input[data-table-fixed] {
+  grid-column: 3;
+}
+
+.insert-table-dialog .table-fit-option:not(.fixed) input[data-table-fixed] {
+  visibility: hidden;
+}
+
+.insert-table-dialog .table-fit-option.active span {
+  font-weight: bold;
+}
+
+.insert-table-dialog input[type="color"] {
+  width: 42px;
+  min-width: 42px;
+  height: 24px;
+  padding: 1px;
+}
+
 .data-dialog {
   display: grid;
   gap: 8px;
+}
+
+.data-options-grid {
+  display: grid;
+  grid-template-columns: 92px minmax(120px, 1fr) 92px minmax(120px, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.data-options-grid label:has(input[type="checkbox"]) {
+  grid-column: span 2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.data-options-grid input[type="checkbox"] {
+  width: auto;
+}
+
+.symbol-dialog {
+  display: grid;
+  gap: 8px;
+}
+
+.symbol-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid #808080;
+}
+
+.symbol-tabs button {
+  min-width: 92px;
+  border-bottom: 0;
+}
+
+.symbol-tabs button.active {
+  background: #fff;
+  transform: translateY(1px);
+}
+
+.symbol-controls {
+  display: grid;
+  grid-template-columns: 42px minmax(120px, 180px) 50px minmax(160px, 1fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.symbol-grid-large {
+  height: 230px;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(28px, 1fr));
+  gap: 0;
+  padding: 3px;
+  background: #fff;
+  box-shadow: inset -1px -1px #fff, inset 1px 1px #808080, inset -2px -2px #dfdfdf, inset 2px 2px #0a0a0a;
+}
+
+.symbol-grid-large button {
+  height: 30px;
+  background: #fff;
+  box-shadow: none;
+  border: 1px solid #c0c0c0;
+}
+
+.symbol-grid-large button.active {
+  color: #fff;
+  background: #000080;
+}
+
+.symbol-recent-row {
+  display: grid;
+  grid-template-columns: repeat(16, 1fr);
+  gap: 2px;
+  padding: 4px;
+  background: #fff;
+  box-shadow: inset -1px -1px #fff, inset 1px 1px #808080, inset -2px -2px #dfdfdf, inset 2px 2px #0a0a0a;
+}
+
+.symbol-footer-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) auto 86px auto;
+  gap: 6px;
+  align-items: center;
 }
 
 .data-var-grid {
@@ -2437,9 +2675,17 @@ fieldset {
 
 .data-var-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 24px;
+  grid-template-columns: 18px minmax(0, 1fr) 34px 24px;
   align-items: center;
   gap: 4px;
+}
+
+.data-var-row input[type="color"],
+.data-grid-table input[type="color"] {
+  width: 30px;
+  min-width: 30px;
+  height: 22px;
+  padding: 1px;
 }
 
 .data-grid-shell {
@@ -2498,7 +2744,7 @@ fieldset {
 .context-menu {
   position: fixed;
   z-index: 80;
-  width: 132px;
+  width: 178px;
   margin: 0;
   padding: 3px;
   list-style: none;
@@ -2524,6 +2770,14 @@ fieldset {
 .context-menu button:focus {
   background: var(--navy);
   color: #fff;
+}
+
+.spellcheck-menu-items[hidden] {
+  display: none;
+}
+
+.spellcheck-menu-items button:first-child:not(:disabled) {
+  font-weight: bold;
 }
 
 .context-menu hr {

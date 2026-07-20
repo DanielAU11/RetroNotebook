@@ -8,20 +8,23 @@ The interface uses [98.css](https://unpkg.com/98.css) with Windows 98-style icon
 
 - Notebook binder with colored notebooks, folders, pages, favorites, tags, and page search.
 - Rich document editor with headings, glossary titles, quotes, fonts, text color, highlight color, alignment, bulleted and numbered lists, line spacing, dividers, superscript, and subscript.
+- Spellcheck with misspelled-word suggestions and dictionary actions in the Windows 98-style right-click menu.
+- Word-style symbol insertion with quick recent symbols, searchable symbol categories, Unicode character codes, and a larger More Symbols dialog.
 - Per-page paper sizes, including Letter, A4, Legal, Executive, and Index Card.
 - In-app print preview with paper-sized pages, clean print output, and embedded chart/graph controls removed.
 - Headers, footers, and page numbers with top-left, top-middle, top-right, bottom-left, bottom-middle, and bottom-right placement.
 - Non-printing page guides and manual page-break markers for essay-style drafting.
-- LaTeX workspace for naming and saving equations, then inserting them from the toolbar.
-- Editable tables, charts, and data graphs.
+- LaTeX workspace for naming, previewing, searching, and saving equations, with an external learning link for new LaTeX users.
+- Editable tables with a Word-style insert dialog, row/column insert and delete actions, header-row toggling, and drag resizing for rows and columns.
+- Editable charts and data graphs with spreadsheet-style data entry and custom series, point, and pie-slice colors.
 - Chart types include column, bar, stacked column, line, area, pie, doughnut, and radar.
 - Graph types include scatter, line graph, area graph, bubble, 3D scatter, and 3D line.
 - Interactive 3D graph rotation by dragging the graph canvas.
 - Image insertion and paste support.
 - Hyperlink insertion from the toolbar, Insert menu, or right-click menu.
 - Drawing pad insertion for quick sketches.
-- Template workspace for built-in and custom editable page templates.
-- SmartPhrases that expand from slash commands like `/summary`.
+- Template workspace for built-in and custom editable page templates, including template search.
+- SmartPhrases that expand from slash commands like `/summary`, including phrase search.
 - Flashcard creation from selected text or manual rich-card entry.
 - Spaced-repetition review with Again, Hard, Good, and Easy grading.
 - Dictation and text-to-speech support when available in the Electron runtime.

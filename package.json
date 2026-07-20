@@ -5,7 +5,8 @@
   "main": "src/main.js",
   "scripts": {
     "start": "set ELECTRON_RUN_AS_NODE=& electron .",
-    "make": "set ELECTRON_RUN_AS_NODE=& electron ."
+    "make": "node node_modules/@electron/packager/bin/electron-packager.mjs . RetroNotebook --platform=win32 --arch=x64 --out=out --overwrite --icon=appicon.ico --app-version=0.1.0",
+    "package:win": "npm run make"
   },
   "keywords": [
     "electron",
@@ -16,6 +17,7 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@electron/packager": "^20.0.3",
     "electron": "^39.8.5"
   },
   "dependencies": {

@@ -19,5 +19,14 @@ contextBridge.exposeInMainWorld("retroNotebook", {
   },
   citation: {
     fetchText: (url) => ipcRenderer.invoke("citation:fetchText", String(url || ""))
+  },
+  spellcheck: {
+    onContext: (callback) => {
+      const listener = (_event, payload) => callback(payload || {});
+      ipcRenderer.on("spellcheck:context", listener);
+      return () => ipcRenderer.removeListener("spellcheck:context", listener);
+    },
+    replace: (suggestion) => ipcRenderer.invoke("spellcheck:replace", String(suggestion || "")),
+    addToDictionary: (word) => ipcRenderer.invoke("spellcheck:add", String(word || ""))
   }
 });

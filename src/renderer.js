@@ -58,6 +58,47 @@ const FORMAT_COLORS = [
   "#cce8ff",
   "#d9f2d0"
 ];
+const SYMBOL_SETS = {
+  symbol: {
+    label: "Symbol",
+    chars: "ΩβγαλπΔΨσμρ∞™®©§¶†‡•·°±×÷≈≠≤≥√∑∫∂ƒ→←↔↕"
+  },
+  greek: {
+    label: "Greek",
+    chars: "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩαβγδεζηθικλμνξοπρστυφχψω"
+  },
+  math: {
+    label: "Mathematical Operators",
+    chars: "∀∂∃∅∇∈∉∋∏∑−∗√∝∞∠∧∨∩∪∫∴∵∼≅≈≠≡≤≥⊂⊃⊆⊇⊕⊗⊥⋅⌈⌉⌊⌋"
+  },
+  arrows: {
+    label: "Arrows",
+    chars: "←↑→↓↔↕↖↗↘↙↩↪↫↬⇐⇑⇒⇓⇔⇕➜➔➝"
+  },
+  currency: {
+    label: "Currency And Marks",
+    chars: "$¢£¤¥€₩₪₹₽₿©®™℠§¶†‡"
+  },
+  punctuation: {
+    label: "Special Characters",
+    chars: "—–‘’“”‚„…•·¡¿«»‹›"
+  }
+};
+const QUICK_SYMBOLS = ["β", "γ", "α", "β", "®", "η", "π", "Δ", "γ", "σ", "μ", "ρ", "∞", "™", "°", "≥"];
+const AUTOCORRECT_MAP = {
+  teh: "the",
+  adn: "and",
+  recieve: "receive",
+  seperate: "separate",
+  occured: "occurred",
+  definately: "definitely",
+  accomodate: "accommodate",
+  repitition: "repetition",
+  hihglight: "highlight",
+  highlught: "highlight",
+  citaiton: "citation",
+  diferrent: "different"
+};
 
 const els = {};
 let state;
@@ -72,7 +113,10 @@ let focusedCardEditor = null;
 let contextTarget = null;
 let contextImageSrc = "";
 let contextObject = null;
+let contextTableCell = null;
+let spellcheckContext = { word: "", suggestions: [], x: 0, y: 0, at: 0, range: null };
 let selectedObject = null;
+let selectedTableCell = null;
 let binderContext = null;
 let editingTemplateId = null;
 let editingPhraseId = null;
@@ -154,6 +198,7 @@ function bindElements() {
     "equationSelect",
     "findIconBtn",
     "equationIconBtn",
+    "symbolIconBtn",
     "tableIconBtn",
     "chartIconBtn",
     "graphIconBtn",
@@ -171,6 +216,7 @@ function bindElements() {
     "lineSpacingSelect",
     "dictationBtn",
     "speakTextBtn",
+    "spellcheckBtn",
     "dashPageCount",
     "dashWordCount",
     "dashDueCount",
@@ -222,12 +268,14 @@ function bindElements() {
     "templateNameInput",
     "templateEditor",
     "customTemplateList",
+    "templateSearchInput",
     "newTemplateBtn",
     "captureTemplateBtn",
     "saveTemplateBtn",
     "phraseTriggerInput",
     "phraseExpansionEditor",
     "smartPhraseList",
+    "phraseSearchInput",
     "newPhraseBtn",
     "deletePhraseBtn",
     "savePhraseBtn",
@@ -258,6 +306,7 @@ function bindElements() {
     "insertLatexBtn",
     "saveLatexSnippetBtn",
     "latexSnippetList",
+    "equationSearchInput",
     "cardFront",
     "cardBack",
     "reverseCardToggle",
@@ -277,8 +326,10 @@ function bindElements() {
     "clockText",
     "appMenu",
     "contextMenu",
+    "spellcheckMenuItems",
     "binderContextMenu",
     "colorMenu",
+    "symbolMenu",
     "phraseMenu",
     "modalOverlay",
     "dialogTitle",
@@ -352,6 +403,7 @@ function bindEvents() {
   els.lineSpacingSelect.addEventListener("change", applyLineSpacing);
   els.dictationBtn.addEventListener("click", toggleDictation);
   els.speakTextBtn.addEventListener("click", speakSelection);
+  els.spellcheckBtn.addEventListener("click", showSpellcheckHelp);
   els.calendarPrevBtn.addEventListener("click", () => moveCalendar(-1));
   els.calendarNextBtn.addEventListener("click", () => moveCalendar(1));
   els.calendarTodayBtn.addEventListener("click", () => {
@@ -445,6 +497,7 @@ function bindEvents() {
   els.findIconBtn.addEventListener("click", focusSearch);
   els.equationIconBtn.addEventListener("click", insertSelectedEquation);
   els.equationSelect.addEventListener("change", loadSelectedEquation);
+  els.symbolIconBtn.addEventListener("click", () => showSymbolMenu(els.symbolIconBtn));
   els.tableIconBtn.addEventListener("click", () => insertTable());
   els.chartIconBtn.addEventListener("click", () => insertChart());
   els.graphIconBtn.addEventListener("click", () => insertGraph());
@@ -494,6 +547,10 @@ function bindEvents() {
   els.insertLatexBtn.addEventListener("click", insertLatexFromWorkspace);
   els.saveLatexSnippetBtn.addEventListener("click", saveLatexSnippet);
   els.latexInput.addEventListener("input", debouncePreviewLatex);
+  els.latexDisplayMode.addEventListener("change", previewLatex);
+  els.equationSearchInput.addEventListener("input", renderLatexSnippets);
+  els.templateSearchInput.addEventListener("input", renderCustomTemplates);
+  els.phraseSearchInput.addEventListener("input", renderSmartPhrases);
 
   els.makeCardFromSelectionBtn.addEventListener("click", makeCardFromSelection);
   els.addCardBtn.addEventListener("click", addManualCard);
@@ -535,6 +592,7 @@ function bindEvents() {
   document.querySelectorAll("[data-binder-action]").forEach((button) => {
     button.addEventListener("click", () => runBinderContextAction(button.dataset.binderAction));
   });
+  bindSpellcheckBridge();
   document.addEventListener("contextmenu", showContextMenu);
   document.addEventListener("selectionchange", rememberActiveSelection);
   document.addEventListener("click", (event) => {
@@ -542,6 +600,7 @@ function bindEvents() {
     if (!els.contextMenu.contains(event.target)) hideContextMenu();
     if (!els.binderContextMenu.contains(event.target)) hideBinderContextMenu();
     if (!els.colorMenu.contains(event.target) && !event.target.closest("#textColorBtn, #highlightColorBtn")) hideColorMenu();
+    if (!els.symbolMenu.contains(event.target) && !event.target.closest("#symbolIconBtn")) hideSymbolMenu();
     if (!els.calendarRepeatDaysMenu.contains(event.target) && !event.target.closest("#calendarRepeatDaysBtn")) els.calendarRepeatDaysMenu.hidden = true;
     if (!els.phraseMenu.contains(event.target) && !els.editor.contains(event.target)) hidePhraseMenu();
     if (!event.target.closest?.(".selectable-object, .context-menu, [data-widget-action]")) clearSelectedObject();
@@ -598,7 +657,8 @@ function bindRichEditors() {
       rememberSelectionForTarget(editor);
     });
     editor.addEventListener("keyup", () => rememberSelectionForTarget(editor));
-    editor.addEventListener("input", () => {
+    editor.addEventListener("input", (event) => {
+      maybeAutocorrect(editor, event);
       if (editor === els.editor) return;
       renderWidgets();
       typesetMath();
@@ -609,8 +669,70 @@ function bindRichEditors() {
       if (event.target.closest("[data-graph-rotate]")) handleGraphRotate(event);
       rememberSelectionForTarget(editor);
     });
+    editor.addEventListener("mousemove", handleTableResizeCursor);
+    editor.addEventListener("mousedown", startTableResizeIfNeeded);
   });
   activeRichEditor = els.editor;
+}
+
+function bindSpellcheckBridge() {
+  window.retroNotebook?.spellcheck?.onContext?.((payload) => {
+    const incomingWord = String(payload.word || "");
+    const keepRange = spellcheckContext.range
+      && incomingWord
+      && spellcheckContext.word
+      && incomingWord.toLowerCase() === spellcheckContext.word.toLowerCase();
+    spellcheckContext = {
+      word: incomingWord || spellcheckContext.word || "",
+      suggestions: Array.isArray(payload.suggestions) ? payload.suggestions.filter(Boolean).slice(0, 6) : [],
+      x: Number(payload.x) || 0,
+      y: Number(payload.y) || 0,
+      at: Date.now(),
+      range: keepRange ? spellcheckContext.range : null
+    };
+    if (!els.contextMenu.hidden) renderSpellcheckMenuItems();
+  });
+}
+
+function showSpellcheckHelp() {
+  retroAlert(
+    "Spelling And Autocorrect",
+    "Spellcheck is active in pages, templates, phrases, and flashcards. Right-click an underlined word for suggestions; common typing slips are corrected after you type a space or punctuation mark.",
+    "info"
+  );
+}
+
+function maybeAutocorrect(editor, event) {
+  if (!editor?.isContentEditable) return;
+  if (event?.inputType && !["insertText", "insertCompositionText"].includes(event.inputType)) return;
+  if (event?.data && !/[\s.,;:!?)]/.test(event.data)) return;
+  const selection = window.getSelection();
+  if (!selection?.rangeCount || !selection.isCollapsed) return;
+  const node = selection.anchorNode;
+  if (!node || node.nodeType !== Node.TEXT_NODE || !editor.contains(node)) return;
+  const parent = node.parentElement;
+  if (parent?.closest("code, pre, a, .latex-chip, .citation-ref, .retro-widget")) return;
+  const offset = selection.anchorOffset;
+  const before = node.data.slice(0, offset);
+  const match = before.match(/(^|[\s([{'"“‘])([A-Za-z]{2,})([\s.,;:!?)]?)$/);
+  if (!match) return;
+  const typed = match[2];
+  const replacement = AUTOCORRECT_MAP[typed.toLowerCase()];
+  if (!replacement || replacement === typed) return;
+  const corrected = typed[0] === typed[0].toUpperCase() ? replacement[0].toUpperCase() + replacement.slice(1) : replacement;
+  const start = offset - match[3].length - typed.length;
+  node.data = node.data.slice(0, start) + corrected + match[3] + node.data.slice(offset);
+  const nextOffset = start + corrected.length + match[3].length;
+  const range = document.createRange();
+  range.setStart(node, nextOffset);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  rememberSelectionForTarget(editor);
+  if (editor === els.editor) {
+    syncEditorNow();
+    scheduleAutoPagination();
+  }
 }
 
 function currentRichEditor() {
@@ -715,22 +837,26 @@ function handleObjectSelectionClick(event) {
     clearSelectedObject();
     return;
   }
-  if (object.tagName === "TABLE" && event.target.closest("td, th")) return;
+  if (object.tagName === "TABLE") selectedTableCell = event.target.closest("td, th") || selectedTableCell;
   selectObject(object);
 }
 
 function selectObject(object) {
   if (!object) return;
+  const tableCell = object.tagName === "TABLE" ? selectedTableCell : null;
   clearSelectedObject();
   selectedObject = object;
+  if (tableCell && object.contains(tableCell)) selectedTableCell = tableCell;
   selectedObject.classList.add("selectable-object", "selected-object");
   if (selectedObject.classList.contains("image-figure")) ensureImageResizeControls(selectedObject);
+  if (selectedObject.tagName === "TABLE") setStatus("Table selected. Right-click a cell to insert/delete rows or columns. Drag cell borders to resize.");
 }
 
 function clearSelectedObject() {
   document.querySelectorAll(".image-resize-controls").forEach((controls) => controls.remove());
   if (selectedObject) selectedObject.classList.remove("selected-object");
   selectedObject = null;
+  selectedTableCell = null;
 }
 
 async function deleteSelectedObject(object = selectedObject) {
@@ -761,8 +887,206 @@ async function editSelectedObject(object = selectedObject) {
     return;
   }
   if (object.tagName === "TABLE") {
-    setStatus("Edit table cells directly, or use Delete Object to remove the table.");
+    selectObject(object);
+    setStatus("Right-click a table cell to insert/delete rows or columns. Drag cell borders to resize.");
   }
+}
+
+function runTableAction(action, cell = selectedTableCell) {
+  const table = cell?.closest?.("table");
+  if (!table) {
+    setStatus("Right-click inside a table cell first.");
+    return;
+  }
+  selectedTableCell = cell;
+  selectObject(table);
+  const owner = objectOwner(table);
+  if (action === "tableRowAbove") insertTableRow(cell, "above");
+  if (action === "tableRowBelow") insertTableRow(cell, "below");
+  if (action === "tableColumnLeft") insertTableColumn(cell, "left");
+  if (action === "tableColumnRight") insertTableColumn(cell, "right");
+  if (action === "tableDeleteRow") deleteTableRow(cell);
+  if (action === "tableDeleteColumn") deleteTableColumn(cell);
+  if (action === "tableToggleHeader") toggleTableHeader(table);
+  if (action === "tableHeaderColor") {
+    pickTableHeaderColor(table);
+    return;
+  }
+  syncRichEditor(owner);
+}
+
+async function pickTableHeaderColor(table) {
+  const current = table.dataset.headerColor || table.querySelector("th")?.style.backgroundColor || "#d9e8ff";
+  const color = await openFormatColorDialog("Table Header Color", "Choose a header row fill color.", normalizeHexColor(current) || "#d9e8ff", "Header");
+  if (!color) return;
+  applyTableHeaderColor(table, color);
+  syncRichEditor(objectOwner(table));
+  setStatus("Table header color updated.");
+}
+
+function applyTableHeaderColor(table, color) {
+  const safeColor = normalizeHexColor(color) || "#d9e8ff";
+  table.dataset.headerColor = safeColor;
+  const firstRow = table.rows[0];
+  if (!firstRow) return;
+  [...firstRow.cells].forEach((cell) => {
+    cell.style.backgroundColor = safeColor;
+  });
+}
+
+function insertTableRow(cell, position) {
+  const row = cell.closest("tr");
+  const table = row.closest("table");
+  const referenceCells = [...row.cells];
+  const newRow = document.createElement("tr");
+  referenceCells.forEach((sourceCell) => {
+    const clone = document.createElement(sourceCell.tagName.toLowerCase());
+    clone.innerHTML = "&nbsp;";
+    clone.style.width = sourceCell.style.width || "";
+    clone.style.height = sourceCell.style.height || "";
+    newRow.appendChild(clone);
+  });
+  if (position === "above") row.before(newRow);
+  else row.after(newRow);
+  if (position === "above" && row.rowIndex === 0) applyTableHeaderColor(table, table.dataset.headerColor || "#d9e8ff");
+  selectedTableCell = newRow.cells[Math.min(cell.cellIndex, newRow.cells.length - 1)];
+  setStatus(`Table row inserted ${position}.`);
+  normalizeTableSections(table);
+}
+
+function insertTableColumn(cell, position) {
+  const table = cell.closest("table");
+  const index = cell.cellIndex + (position === "right" ? 1 : 0);
+  [...table.rows].forEach((row) => {
+    const reference = row.cells[Math.min(cell.cellIndex, row.cells.length - 1)];
+    const newCell = document.createElement(reference?.tagName?.toLowerCase() || "td");
+    newCell.innerHTML = "&nbsp;";
+    newCell.style.width = reference?.style.width || "";
+    if (newCell.tagName === "TH") newCell.style.backgroundColor = table.dataset.headerColor || "#d9e8ff";
+    if (index >= row.cells.length) row.appendChild(newCell);
+    else row.insertBefore(newCell, row.cells[index]);
+  });
+  selectedTableCell = table.rows[cell.parentElement.rowIndex]?.cells[index] || cell;
+  setStatus(`Table column inserted ${position}.`);
+}
+
+function deleteTableRow(cell) {
+  const table = cell.closest("table");
+  if (table.rows.length <= 1) {
+    setStatus("A table needs at least one row.");
+    return;
+  }
+  const row = cell.closest("tr");
+  const nextRow = row.nextElementSibling || row.previousElementSibling;
+  row.remove();
+  selectedTableCell = nextRow?.cells[Math.min(cell.cellIndex, nextRow.cells.length - 1)] || table.rows[0]?.cells[0] || null;
+  setStatus("Table row deleted.");
+}
+
+function deleteTableColumn(cell) {
+  const table = cell.closest("table");
+  const index = cell.cellIndex;
+  const maxCells = Math.max(...[...table.rows].map((row) => row.cells.length));
+  if (maxCells <= 1) {
+    setStatus("A table needs at least one column.");
+    return;
+  }
+  [...table.rows].forEach((row) => row.cells[index]?.remove());
+  selectedTableCell = table.rows[Math.min(cell.parentElement.rowIndex, table.rows.length - 1)]?.cells[Math.max(0, index - 1)] || null;
+  setStatus("Table column deleted.");
+}
+
+function toggleTableHeader(table) {
+  const firstRow = table.rows[0];
+  if (!firstRow) return;
+  const hasHeader = [...firstRow.cells].every((cell) => cell.tagName === "TH");
+  [...firstRow.cells].forEach((cell) => {
+    const replacement = document.createElement(hasHeader ? "td" : "th");
+    replacement.innerHTML = cell.innerHTML || "&nbsp;";
+    replacement.style.cssText = cell.style.cssText;
+    if (!hasHeader) replacement.style.backgroundColor = table.dataset.headerColor || "#d9e8ff";
+    cell.replaceWith(replacement);
+  });
+  setStatus(hasHeader ? "Header row converted to body cells." : "Header row enabled.");
+}
+
+function normalizeTableSections(table) {
+  if (!table.tBodies.length) {
+    const body = document.createElement("tbody");
+    [...table.rows].forEach((row) => body.appendChild(row));
+    table.appendChild(body);
+  }
+}
+
+function tableResizeHit(cell, event) {
+  const rect = cell.getBoundingClientRect();
+  const nearRight = rect.right - event.clientX <= 5;
+  const nearBottom = rect.bottom - event.clientY <= 5;
+  if (nearRight && rect.width > 12) return "column";
+  if (nearBottom && rect.height > 12) return "row";
+  return "";
+}
+
+function handleTableResizeCursor(event) {
+  const cell = event.target.closest?.("td, th");
+  const editor = event.currentTarget;
+  if (!cell || !editor.contains(cell)) {
+    editor.style.cursor = "";
+    return;
+  }
+  const hit = tableResizeHit(cell, event);
+  editor.style.cursor = hit === "column" ? "col-resize" : hit === "row" ? "row-resize" : "";
+}
+
+function startTableResizeIfNeeded(event) {
+  const cell = event.target.closest?.("td, th");
+  if (!cell || event.button !== 0) return;
+  const mode = tableResizeHit(cell, event);
+  if (!mode) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const table = cell.closest("table");
+  const owner = objectOwner(table);
+  const start = {
+    x: event.clientX,
+    y: event.clientY,
+    width: cell.getBoundingClientRect().width,
+    height: cell.getBoundingClientRect().height,
+    index: cell.cellIndex,
+    row: cell.closest("tr")
+  };
+  const move = (moveEvent) => {
+    if (mode === "column") {
+      const width = Math.max(34, start.width + moveEvent.clientX - start.x);
+      [...table.rows].forEach((row) => {
+        if (row.cells[start.index]) {
+          row.cells[start.index].style.width = `${Math.round(width)}px`;
+          row.cells[start.index].style.minWidth = `${Math.round(width)}px`;
+          row.cells[start.index].style.whiteSpace = "normal";
+        }
+      });
+    } else {
+      const height = Math.max(22, start.height + moveEvent.clientY - start.y);
+      [...start.row.cells].forEach((rowCell) => {
+        rowCell.style.height = "";
+        rowCell.style.minHeight = `${Math.round(height)}px`;
+        rowCell.style.paddingTop = `${Math.max(4, Math.round((height - 16) / 2))}px`;
+        rowCell.style.paddingBottom = `${Math.max(4, Math.round((height - 16) / 2))}px`;
+      });
+    }
+  };
+  const end = () => {
+    document.removeEventListener("mousemove", move, true);
+    document.removeEventListener("mouseup", end, true);
+    document.body.classList.remove("resizing-table", "resizing-table-row");
+    selectedTableCell = cell;
+    selectObject(table);
+    syncRichEditor(owner);
+    setStatus(mode === "column" ? "Table column resized." : "Table row resized.");
+  };
+  document.body.classList.add(mode === "row" ? "resizing-table-row" : "resizing-table");
+  document.addEventListener("mousemove", move, true);
+  document.addEventListener("mouseup", end, true);
 }
 
 function ensureImageResizeControls(figure) {
@@ -2098,11 +2422,17 @@ function renderReviewFilters() {
 
 function renderLatexSnippets() {
   els.latexSnippetList.innerHTML = "";
+  const query = String(els.equationSearchInput?.value || "").trim().toLowerCase();
+  const snippets = state.latexSnippets.filter((snippet) => `${snippet.name} ${snippet.latex}`.toLowerCase().includes(query));
   if (!state.latexSnippets.length) {
     els.latexSnippetList.innerHTML = "<p class=\"fine-print\">No saved equations yet.</p>";
     return;
   }
-  state.latexSnippets.forEach((snippet) => {
+  if (!snippets.length) {
+    els.latexSnippetList.innerHTML = "<p class=\"fine-print\">No equations match that search.</p>";
+    return;
+  }
+  snippets.forEach((snippet) => {
     const row = document.createElement("div");
     row.className = "dashboard-row equation-row";
     row.innerHTML = `
@@ -2505,6 +2835,208 @@ function hideColorMenu() {
   els.colorMenu.hidden = true;
 }
 
+function showSymbolMenu(anchor) {
+  const recent = recentSymbols();
+  const quick = unique([...recent, ...QUICK_SYMBOLS]).slice(0, 18);
+  els.symbolMenu.innerHTML = `
+    <div class="symbol-quick-grid">
+      ${quick.map((symbol) => `<button type="button" data-symbol="${escapeHtml(symbol)}" title="${escapeHtml(symbolCode(symbol))}">${escapeHtml(symbol)}</button>`).join("")}
+    </div>
+    <button type="button" data-more-symbols class="symbol-more-command">&Omega; More Symbols...</button>
+  `;
+  els.symbolMenu.querySelectorAll("[data-symbol]").forEach((button) => {
+    button.addEventListener("click", () => insertSymbol(button.dataset.symbol));
+  });
+  els.symbolMenu.querySelector("[data-more-symbols]").addEventListener("click", () => {
+    hideSymbolMenu();
+    openSymbolDialog();
+  });
+  const rect = anchor.getBoundingClientRect();
+  els.symbolMenu.hidden = false;
+  els.symbolMenu.style.left = `${Math.min(rect.left, window.innerWidth - 170)}px`;
+  els.symbolMenu.style.top = `${rect.bottom + 2}px`;
+}
+
+function hideSymbolMenu() {
+  els.symbolMenu.hidden = true;
+}
+
+function insertSymbol(symbol) {
+  if (!symbol) return;
+  hideSymbolMenu();
+  insertHtml(escapeHtml(symbol));
+  rememberRecentSymbol(symbol);
+  setStatus(`Inserted symbol ${symbol}.`);
+}
+
+function recentSymbols() {
+  state.recentSymbols = Array.isArray(state.recentSymbols) ? state.recentSymbols.slice(0, 24) : [];
+  return state.recentSymbols;
+}
+
+function rememberRecentSymbol(symbol) {
+  state.recentSymbols = unique([symbol, ...recentSymbols()]).slice(0, 24);
+  saveState();
+}
+
+function openSymbolDialog() {
+  return new Promise((resolve) => {
+    dialogResolve = resolve;
+    let draft = {
+      tab: "symbols",
+      set: "symbol",
+      query: "",
+      selected: recentSymbols()[0] || "Ω"
+    };
+    els.dialogTitle.textContent = "Symbol";
+    els.dialogMessage.textContent = "";
+    els.dialogIcon.className = "icon95 Calculator_32x32_4";
+    const dialog = els.modalOverlay.querySelector(".retro-dialog");
+    dialog.classList.add("has-symbol");
+    dialog.classList.remove("has-fields", "has-multiline", "has-data", "page-setup-dialog");
+    els.dialogFields.innerHTML = "<div class=\"symbol-dialog\"></div>";
+    els.dialogButtons.innerHTML = "";
+    const root = els.dialogFields.querySelector(".symbol-dialog");
+
+    const render = () => {
+      root.innerHTML = symbolDialogHtml(draft);
+      root.querySelectorAll("[data-symbol-tab]").forEach((button) => {
+        button.addEventListener("click", () => {
+          draft.tab = button.dataset.symbolTab;
+          if (draft.tab === "special") draft.set = "punctuation";
+          render();
+        });
+      });
+      root.querySelector("[data-symbol-set]").addEventListener("change", (event) => {
+        draft.set = event.target.value;
+        draft.selected = symbolsForDraft(draft)[0] || draft.selected;
+        render();
+      });
+      root.querySelector("[data-symbol-search]").addEventListener("input", (event) => {
+        draft.query = event.target.value;
+        const caret = event.target.selectionStart || draft.query.length;
+        render();
+        requestAnimationFrame(() => {
+          const search = root.querySelector("[data-symbol-search]");
+          search?.focus();
+          search?.setSelectionRange(caret, caret);
+        });
+      });
+      root.querySelectorAll("[data-pick-symbol]").forEach((button) => {
+        button.addEventListener("click", () => {
+          draft.selected = button.dataset.pickSymbol;
+          render();
+        });
+        button.addEventListener("dblclick", () => closeRetroDialog(draft.selected));
+      });
+      root.querySelector("[data-symbol-code]").addEventListener("change", (event) => {
+        const parsed = symbolFromCode(event.target.value);
+        if (parsed) {
+          draft.selected = parsed;
+          render();
+        }
+      });
+    };
+
+    const insert = document.createElement("button");
+    insert.textContent = "Insert";
+    insert.addEventListener("click", () => closeRetroDialog(draft.selected));
+    const cancel = document.createElement("button");
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => closeRetroDialog(null));
+    els.dialogButtons.append(insert, cancel);
+    render();
+    els.modalOverlay.hidden = false;
+  }).then((symbol) => {
+    els.modalOverlay.querySelector(".retro-dialog")?.classList.remove("has-symbol");
+    if (symbol) insertSymbol(symbol);
+  });
+}
+
+function symbolDialogHtml(draft) {
+  const symbols = symbolsForDraft(draft);
+  const recent = recentSymbols();
+  const selected = draft.selected || symbols[0] || "Ω";
+  return `
+    <div class="symbol-tabs">
+      <button type="button" data-symbol-tab="symbols" class="${draft.tab === "symbols" ? "active" : ""}">Symbols</button>
+      <button type="button" data-symbol-tab="special" class="${draft.tab === "special" ? "active" : ""}">Special Characters</button>
+    </div>
+    <div class="symbol-controls">
+      <label>Font</label>
+      <select data-symbol-set>
+        ${Object.entries(SYMBOL_SETS).map(([key, set]) => `<option value="${key}" ${draft.set === key ? "selected" : ""}>${escapeHtml(set.label)}</option>`).join("")}
+      </select>
+      <label>Search</label>
+      <input data-symbol-search value="${escapeHtml(draft.query)}" placeholder="Greek, arrow, copyright, U+03A9..." />
+    </div>
+    <div class="symbol-grid-large">
+      ${symbols.map((symbol) => `<button type="button" data-pick-symbol="${escapeHtml(symbol)}" class="${symbol === selected ? "active" : ""}" title="${escapeHtml(symbolCode(symbol))}">${escapeHtml(symbol)}</button>`).join("")}
+    </div>
+    <label>Recently used symbols:</label>
+    <div class="symbol-recent-row">
+      ${(recent.length ? recent : QUICK_SYMBOLS.slice(0, 12)).map((symbol) => `<button type="button" data-pick-symbol="${escapeHtml(symbol)}">${escapeHtml(symbol)}</button>`).join("")}
+    </div>
+    <div class="symbol-footer-row">
+      <span>Selected: <strong>${escapeHtml(selected)}</strong></span>
+      <label>Character code</label>
+      <input data-symbol-code value="${escapeHtml(symbolCode(selected))}" />
+      <span>from Unicode</span>
+    </div>
+  `;
+}
+
+function symbolsForDraft(draft) {
+  const setKey = draft.tab === "special" ? "punctuation" : draft.set;
+  const source = [...(SYMBOL_SETS[setKey]?.chars || SYMBOL_SETS.symbol.chars)];
+  const query = String(draft.query || "").trim().toLowerCase();
+  if (!query) return source;
+  const byCode = symbolFromCode(query);
+  return source.filter((symbol) => {
+    const haystack = `${symbol} ${symbolCode(symbol)} ${symbolAlias(symbol)} ${SYMBOL_SETS[setKey]?.label || ""}`.toLowerCase();
+    return haystack.includes(query) || symbol === byCode;
+  });
+}
+
+function symbolAlias(symbol) {
+  return {
+    "Ω": "omega ohm symbol",
+    "α": "alpha",
+    "β": "beta",
+    "γ": "gamma",
+    "Δ": "delta triangle change",
+    "π": "pi",
+    "∞": "infinity",
+    "≤": "less equal",
+    "≥": "greater equal",
+    "®": "registered",
+    "©": "copyright",
+    "™": "trademark",
+    "→": "right arrow",
+    "←": "left arrow",
+    "€": "euro",
+    "£": "pound",
+    "¥": "yen"
+  }[symbol] || "";
+}
+
+function symbolCode(symbol) {
+  const code = symbol.codePointAt(0) || 0;
+  return `U+${code.toString(16).toUpperCase().padStart(4, "0")}`;
+}
+
+function symbolFromCode(value) {
+  const clean = String(value || "").trim().replace(/^U\+/i, "").replace(/^0x/i, "");
+  if (!/^[0-9a-f]+$/i.test(clean)) return "";
+  const code = Number.parseInt(clean, 16);
+  if (!Number.isFinite(code) || code <= 0 || code > 0x10ffff) return "";
+  try {
+    return String.fromCodePoint(code);
+  } catch {
+    return "";
+  }
+}
+
 function applyColorChoice(mode, color) {
   if (mode === "highlight") {
     if (color === "transparent") {
@@ -2668,23 +3200,114 @@ function insertEquation(latex, display = els.latexDisplayMode.checked) {
 
 async function insertTable(target = currentRichEditor()) {
   const range = captureSelectionForTarget(target);
-  const size = await retroPrompt("Insert Table", "Rows x columns, for example 4x3.", "4x3");
-  if (!size) return;
+  const options = await openInsertTableDialog(target);
+  if (!options) return;
   restoreSelectionForTarget(target, range);
-  const [rowsRaw, colsRaw] = size.toLowerCase().split("x");
-  const rows = clamp(parseInt(rowsRaw, 10) || 3, 1, 12);
-  const cols = clamp(parseInt(colsRaw, 10) || 3, 1, maxTableColumnsForTarget(target));
-  let html = "<table><thead><tr>";
-  for (let c = 1; c <= cols; c += 1) html += `<th>Header ${c}</th>`;
+  const rows = clamp(options.rows, 1, 24);
+  const requestedCols = clamp(options.cols, 1, 12);
+  const cols = clamp(requestedCols, 1, maxTableColumnsForTarget(target));
+  const headerColor = normalizeHexColor(options.headerColor) || "#d9e8ff";
+  const tableStyle = tableStyleForAutoFit(options);
+  const cellStyle = options.autoFit === "fixed" && options.fixedWidth ? ` style=\"width:${escapeHtml(options.fixedWidth)};\"` : "";
+  let html = `<table data-autofit="${escapeHtml(options.autoFit)}" data-header-color="${headerColor}"${tableStyle}><thead><tr>`;
+  for (let c = 1; c <= cols; c += 1) html += `<th${cellStyle ? cellStyle.replace(/"$/, `;background-color:${headerColor};"`) : ` style="background-color:${headerColor};"`}>Header ${c}</th>`;
   html += "</tr></thead><tbody>";
   for (let r = 1; r < rows; r += 1) {
     html += "<tr>";
-    for (let c = 1; c <= cols; c += 1) html += "<td>&nbsp;</td>";
+    for (let c = 1; c <= cols; c += 1) html += `<td${cellStyle}>&nbsp;</td>`;
     html += "</tr>";
   }
   html += "</tbody></table><p></p>";
   insertHtml(html, target);
-  if (cols < (parseInt(colsRaw, 10) || 3)) setStatus(`Table limited to ${cols} columns for this page width.`);
+  if (options.remember) {
+    localStorage.setItem("retro-notebook-table-defaults", JSON.stringify(options));
+  }
+  if (cols < requestedCols) setStatus(`Table limited to ${cols} columns for this page width.`);
+}
+
+function openInsertTableDialog(target) {
+  return new Promise((resolve) => {
+    dialogResolve = resolve;
+    let defaults = { cols: 3, rows: 3, autoFit: "window", fixedWidth: "Auto", headerColor: "#d9e8ff", remember: false };
+    try {
+      defaults = { ...defaults, ...JSON.parse(localStorage.getItem("retro-notebook-table-defaults") || "{}") };
+    } catch {
+      defaults = { ...defaults };
+    }
+    defaults.cols = clamp(Number(defaults.cols) || 3, 1, maxTableColumnsForTarget(target));
+    defaults.rows = clamp(Number(defaults.rows) || 3, 1, 24);
+    els.dialogTitle.textContent = "Insert Table";
+    els.dialogMessage.textContent = "";
+    els.dialogIcon.className = "icon95 FileText_32x32_4";
+    const dialog = els.modalOverlay.querySelector(".retro-dialog");
+    dialog.classList.add("has-fields");
+    dialog.classList.remove("has-multiline", "has-data", "has-symbol", "page-setup-dialog");
+    els.dialogFields.innerHTML = `
+      <div class="insert-table-dialog">
+        <fieldset>
+          <legend>Table size</legend>
+          <label>Number of columns</label>
+          <input data-table-cols type="number" min="1" max="${maxTableColumnsForTarget(target)}" value="${defaults.cols}" />
+          <label>Number of rows</label>
+          <input data-table-rows type="number" min="1" max="24" value="${defaults.rows}" />
+        </fieldset>
+        <fieldset>
+          <legend>AutoFit behavior</legend>
+          <label class="table-fit-option fixed"><input type="radio" name="table-fit" value="fixed" ${defaults.autoFit === "fixed" ? "checked" : ""} /> <span>Fixed column width</span><input data-table-fixed value="${escapeHtml(defaults.fixedWidth || "Auto")}" /></label>
+          <label class="table-fit-option"><input type="radio" name="table-fit" value="content" ${defaults.autoFit === "content" ? "checked" : ""} /> <span>AutoFit to contents</span></label>
+          <label class="table-fit-option"><input type="radio" name="table-fit" value="window" ${defaults.autoFit === "window" ? "checked" : ""} /> <span>AutoFit to window</span></label>
+        </fieldset>
+        <fieldset>
+          <legend>Design</legend>
+          <label>Header color</label>
+          <input data-table-header-color type="color" value="${escapeHtml(normalizeHexColor(defaults.headerColor) || "#d9e8ff")}" />
+        </fieldset>
+        <label><input data-table-remember type="checkbox" ${defaults.remember ? "checked" : ""} /> Remember dimensions for new tables</label>
+      </div>
+    `;
+    els.dialogButtons.innerHTML = "";
+    const updateFitControls = () => {
+      const selected = els.dialogFields.querySelector("input[name='table-fit']:checked")?.value || "window";
+      const fixed = els.dialogFields.querySelector("[data-table-fixed]");
+      if (fixed) fixed.disabled = selected !== "fixed";
+      els.dialogFields.querySelectorAll(".table-fit-option").forEach((label) => {
+        label.classList.toggle("active", label.querySelector("input[type='radio']")?.value === selected);
+      });
+    };
+    els.dialogFields.querySelectorAll("input[name='table-fit']").forEach((radio) => {
+      radio.addEventListener("change", updateFitControls);
+    });
+    updateFitControls();
+    const ok = document.createElement("button");
+    ok.textContent = "OK";
+    ok.addEventListener("click", () => {
+      const cols = clamp(Number(els.dialogFields.querySelector("[data-table-cols]")?.value) || 3, 1, maxTableColumnsForTarget(target));
+      const rows = clamp(Number(els.dialogFields.querySelector("[data-table-rows]")?.value) || 3, 1, 24);
+      const autoFit = els.dialogFields.querySelector("input[name='table-fit']:checked")?.value || "window";
+      const fixedWidth = normalizeTableWidth(els.dialogFields.querySelector("[data-table-fixed]")?.value);
+      const headerColor = normalizeHexColor(els.dialogFields.querySelector("[data-table-header-color]")?.value) || "#d9e8ff";
+      const remember = Boolean(els.dialogFields.querySelector("[data-table-remember]")?.checked);
+      closeRetroDialog({ cols, rows, autoFit, fixedWidth, headerColor, remember });
+    });
+    const cancel = document.createElement("button");
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => closeRetroDialog(null));
+    els.dialogButtons.append(ok, cancel);
+    els.modalOverlay.hidden = false;
+  });
+}
+
+function tableStyleForAutoFit(options) {
+  if (options.autoFit === "window") return " style=\"width:100%;table-layout:fixed;\"";
+  if (options.autoFit === "content") return " style=\"width:auto;max-width:100%;table-layout:auto;\"";
+  return " style=\"width:auto;max-width:100%;table-layout:fixed;\"";
+}
+
+function normalizeTableWidth(value) {
+  const raw = String(value || "").trim();
+  if (!raw || /^auto$/i.test(raw)) return "";
+  if (/^\d+(\.\d+)?(px|%|in|cm|mm|pt)?$/i.test(raw)) return /\D$/.test(raw) ? raw : `${raw}px`;
+  return "";
 }
 
 function maxTableColumnsForTarget(target) {
@@ -2878,11 +3501,17 @@ function copyImageToClipboard(src) {
 
 function renderCustomTemplates() {
   els.customTemplateList.innerHTML = "";
+  const query = String(els.templateSearchInput?.value || "").trim().toLowerCase();
+  const templates = state.customTemplates.filter((template) => `${template.name} ${textFromHtml(template.content)}`.toLowerCase().includes(query));
   if (!state.customTemplates.length) {
     els.customTemplateList.innerHTML = "<p class=\"fine-print\">No custom templates yet.</p>";
     return;
   }
-  state.customTemplates.forEach((template) => {
+  if (!templates.length) {
+    els.customTemplateList.innerHTML = "<p class=\"fine-print\">No templates match that search.</p>";
+    return;
+  }
+  templates.forEach((template) => {
     const row = document.createElement("div");
     row.className = "dashboard-row template-row";
     row.innerHTML = `
@@ -3750,6 +4379,7 @@ function appMenuItems() {
       { label: "Picture...", action: "insertImage" },
       { label: "Hyperlink...", action: "hyperlink" },
       { label: "Equation", action: "equation" },
+      { label: "Symbol...", action: "symbol" },
       { label: "Table", action: "table" },
       { label: "Chart", action: "chart" },
       { label: "3D / Data Graph", action: "graph" },
@@ -3784,6 +4414,7 @@ function appMenuItems() {
       { label: "SmartPhrases", action: "phrases" },
       { label: "Citation Manager", action: "citations" },
       { label: "Calendar", action: "calendar" },
+      { label: "Spelling And Autocorrect", action: "spellcheck" },
       { label: "Start Dictation", action: "dictation" },
       { label: "Read Selected Text", action: "speak" },
       { separator: true },
@@ -3792,6 +4423,16 @@ function appMenuItems() {
     ],
     table: [
       { label: "Insert Table...", action: "table" },
+      { separator: true },
+      { label: "Insert Row Above", action: "tableRowAbove" },
+      { label: "Insert Row Below", action: "tableRowBelow" },
+      { label: "Insert Column Left", action: "tableColumnLeft" },
+      { label: "Insert Column Right", action: "tableColumnRight" },
+      { label: "Delete Row", action: "tableDeleteRow" },
+      { label: "Delete Column", action: "tableDeleteColumn" },
+      { label: "Toggle Header Row", action: "tableToggleHeader" },
+      { label: "Header Color...", action: "tableHeaderColor" },
+      { separator: true },
       { label: "Insert Chart...", action: "chart" },
       { label: "Insert Graph...", action: "graph" }
     ],
@@ -3838,7 +4479,16 @@ function menuActions() {
     insertImage,
     hyperlink: insertHyperlink,
     equation: insertSelectedEquation,
+    symbol: openSymbolDialog,
     table: insertTable,
+    tableRowAbove: () => runTableAction("tableRowAbove"),
+    tableRowBelow: () => runTableAction("tableRowBelow"),
+    tableColumnLeft: () => runTableAction("tableColumnLeft"),
+    tableColumnRight: () => runTableAction("tableColumnRight"),
+    tableDeleteRow: () => runTableAction("tableDeleteRow"),
+    tableDeleteColumn: () => runTableAction("tableDeleteColumn"),
+    tableToggleHeader: () => runTableAction("tableToggleHeader"),
+    tableHeaderColor: () => runTableAction("tableHeaderColor"),
     chart: insertChart,
     graph: insertGraph,
     drawing: insertDrawing,
@@ -3862,6 +4512,7 @@ function menuActions() {
     quote: () => exec("formatBlock", "blockquote"),
     captureTemplate: captureCurrentPageAsTemplate,
     applyProfile,
+    spellcheck: showSpellcheckHelp,
     dictation: toggleDictation,
     speak: speakSelection,
     makeCard: makeCardFromSelection,
@@ -3884,11 +4535,17 @@ function menuActions() {
 
 function renderSmartPhrases() {
   els.smartPhraseList.innerHTML = "";
+  const query = String(els.phraseSearchInput?.value || "").trim().toLowerCase().replace(/^\//, "");
+  const phrases = state.smartPhrases.filter((phrase) => `${phrase.trigger} ${textFromHtml(phrase.expansion)}`.toLowerCase().includes(query));
   if (!state.smartPhrases.length) {
     els.smartPhraseList.innerHTML = "<p class=\"fine-print\">No smartphrases yet.</p>";
     return;
   }
-  state.smartPhrases.forEach((phrase) => {
+  if (!phrases.length) {
+    els.smartPhraseList.innerHTML = "<p class=\"fine-print\">No smartphrases match that search.</p>";
+    return;
+  }
+  phrases.forEach((phrase) => {
     const row = document.createElement("div");
     row.className = "dashboard-row phrase-row";
     row.innerHTML = `
@@ -4548,19 +5205,117 @@ function showContextMenu(event) {
   contextTarget = target;
   contextImageSrc = event.target.closest?.(".image-figure img")?.src || "";
   contextObject = selectableObjectFromTarget(event.target);
+  contextTableCell = event.target.closest?.("td, th") || null;
+  if (contextTableCell) selectedTableCell = contextTableCell;
   if (contextObject) selectObject(contextObject);
+  primeSpellcheckContextFromPoint(event);
+  els.contextMenu.querySelectorAll(".table-context-action").forEach((item) => {
+    item.hidden = !(contextObject?.tagName === "TABLE" && contextTableCell);
+  });
+  renderSpellcheckMenuItems(event);
   els.contextMenu.hidden = false;
+  positionContextMenu(event.clientX, event.clientY);
+  setTimeout(() => {
+    if (els.contextMenu.hidden) return;
+    renderSpellcheckMenuItems();
+    positionContextMenu(event.clientX, event.clientY);
+  }, 90);
+  setTimeout(() => {
+    if (els.contextMenu.hidden) return;
+    renderSpellcheckMenuItems();
+    positionContextMenu(event.clientX, event.clientY);
+  }, 320);
+}
+
+function primeSpellcheckContextFromPoint(event) {
+  const info = wordInfoAtPoint(event.clientX, event.clientY);
+  if (!info?.word) return;
+  const lower = info.word.toLowerCase();
+  const fallbackSuggestions = AUTOCORRECT_MAP[lower] ? [AUTOCORRECT_MAP[lower]] : [];
+  spellcheckContext = {
+    word: info.word,
+    suggestions: fallbackSuggestions,
+    x: event.clientX,
+    y: event.clientY,
+    at: Date.now(),
+    range: info.range
+  };
+}
+
+function wordInfoAtPoint(x, y) {
+  const sourceRange = document.caretRangeFromPoint
+    ? document.caretRangeFromPoint(x, y)
+    : (() => {
+        const position = document.caretPositionFromPoint?.(x, y);
+        if (!position) return null;
+        const range = document.createRange();
+        range.setStart(position.offsetNode, position.offset);
+        range.collapse(true);
+        return range;
+      })();
+  const node = sourceRange?.startContainer;
+  if (!node || node.nodeType !== Node.TEXT_NODE) return null;
+  const editable = editableTarget(node.parentElement);
+  if (!editable || node.parentElement?.closest("code, pre, a, .latex-chip, .citation-ref, .retro-widget")) return null;
+  const text = node.nodeValue || "";
+  let start = sourceRange.startOffset;
+  let end = sourceRange.startOffset;
+  while (start > 0 && /[A-Za-z']/u.test(text[start - 1])) start -= 1;
+  while (end < text.length && /[A-Za-z']/u.test(text[end])) end += 1;
+  const word = text.slice(start, end).trim();
+  if (word.length < 2) return null;
+  const range = document.createRange();
+  range.setStart(node, start);
+  range.setEnd(node, end);
+  return { word, range };
+}
+
+function positionContextMenu(clientX, clientY) {
   const { innerWidth, innerHeight } = window;
-  const width = 132;
-  const height = 164;
-  els.contextMenu.style.left = `${Math.min(event.clientX, innerWidth - width - 4)}px`;
-  els.contextMenu.style.top = `${Math.min(event.clientY, innerHeight - height - 4)}px`;
+  const width = 178;
+  const spellHeight = els.spellcheckMenuItems.hidden ? 0 : Math.min(190, (spellcheckContext.suggestions.length + 2) * 24);
+  const height = (contextTableCell ? 330 : 164) + spellHeight;
+  els.contextMenu.style.left = `${Math.min(clientX, innerWidth - width - 4)}px`;
+  els.contextMenu.style.top = `${Math.min(clientY, innerHeight - height - 4)}px`;
 }
 
 function hideContextMenu() {
   els.contextMenu.hidden = true;
   contextImageSrc = "";
   contextObject = null;
+  contextTableCell = null;
+}
+
+function renderSpellcheckMenuItems(event = null) {
+  const closeEnough = !event
+    || (Math.abs((spellcheckContext.x || 0) - event.clientX) <= 24 && Math.abs((spellcheckContext.y || 0) - event.clientY) <= 24)
+    || Date.now() - spellcheckContext.at < 350;
+  const word = closeEnough ? spellcheckContext.word : "";
+  if (!word) {
+    els.spellcheckMenuItems.hidden = true;
+    els.spellcheckMenuItems.innerHTML = "";
+    return;
+  }
+  const suggestions = spellcheckContext.suggestions.length
+    ? spellcheckContext.suggestions.map((suggestion) => `<button type="button" data-spell-replace="${escapeHtml(suggestion)}">${escapeHtml(suggestion)}</button>`).join("")
+    : "<button type=\"button\" disabled>No spelling suggestions</button>";
+  els.spellcheckMenuItems.hidden = false;
+  els.spellcheckMenuItems.innerHTML = `
+    <button type="button" disabled>Spelling: ${escapeHtml(word)}</button>
+    ${suggestions}
+    <button type="button" data-context-action="spellAdd">Add "${escapeHtml(word)}" to dictionary</button>
+    <hr />
+  `;
+  els.spellcheckMenuItems.querySelectorAll("[data-spell-replace]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await replaceMisspelling(button.dataset.spellReplace);
+      hideContextMenu();
+    });
+  });
+  els.spellcheckMenuItems.querySelector("[data-context-action='spellAdd']")?.addEventListener("click", async () => {
+    await addWordToDictionary(word);
+    hideContextMenu();
+  });
 }
 
 function showBinderContextMenu(event, type, id) {
@@ -4643,6 +5398,8 @@ async function runContextAction(action) {
     await editSelectedObject(contextObject || selectedObject);
   } else if (action === "deleteObject") {
     await deleteSelectedObject(contextObject || selectedObject);
+  } else if (action.startsWith("table")) {
+    runTableAction(action, contextTableCell);
   } else if (action === "cut") {
     const selection = window.getSelection().toString();
     if (selection && window.retroNotebook?.clipboard?.writeText) window.retroNotebook.clipboard.writeText(selection);
@@ -4652,6 +5409,36 @@ async function runContextAction(action) {
   }
   syncRichEditor(contextTarget);
   hideContextMenu();
+}
+
+async function replaceMisspelling(suggestion) {
+  let ok = await window.retroNotebook?.spellcheck?.replace?.(suggestion);
+  if (!ok && spellcheckContext.range) {
+    ok = replaceSpellcheckRange(suggestion);
+  }
+  setStatus(ok ? `Replaced with "${suggestion}".` : "Could not replace misspelling.");
+}
+
+function replaceSpellcheckRange(suggestion) {
+  const range = spellcheckContext.range;
+  if (!range) return false;
+  try {
+    range.deleteContents();
+    range.insertNode(document.createTextNode(String(suggestion || "")));
+    const owner = objectOwner(range.commonAncestorContainer?.parentElement || contextTarget);
+    if (owner) {
+      rememberSelectionForTarget(owner);
+      syncRichEditor(owner);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function addWordToDictionary(word) {
+  const ok = await window.retroNotebook?.spellcheck?.addToDictionary?.(word);
+  setStatus(ok ? `"${word}" added to dictionary.` : "Could not add word to dictionary.");
 }
 
 function editableTarget(target) {
@@ -4971,11 +5758,13 @@ function drawChartByType(ctx, data, w, h) {
 }
 
 function drawColumnChart(ctx, data, w, h) {
-  const layout = chartPlotLayout(w, 46, 22, 40);
+  const options = normalizeDataOptions(data.options, "chart", data.variables);
+  const layout = chartPlotLayout(w, 56, 24, 52);
   drawAxes(ctx, w, h, layout.left, layout.top, layout.right, layout.bottom);
   const values = data.rows.flatMap((row) => data.variables.map((variable) => numberFromRow(row, variable.key)));
   const max = Math.max(1, ...values);
-  const colors = chartColors();
+  drawVerticalValueTicks(ctx, { ...layout, w, h }, max, options);
+  const colors = seriesColors(data);
   const plotW = Math.max(80, w - layout.left - layout.right);
   const plotH = Math.max(80, h - layout.top - layout.bottom);
   const groupW = Math.max(32, plotW / Math.max(1, data.rows.length));
@@ -4988,28 +5777,33 @@ function drawColumnChart(ctx, data, w, h) {
       const x = groupX + varIndex * (barW + 2);
       ctx.fillStyle = colors[varIndex % colors.length];
       ctx.fillRect(x, h - layout.bottom - barH, barW, barH);
-      ctx.fillStyle = "#111";
-      ctx.font = "10px MS Sans Serif, Arial";
-      ctx.fillText(String(value), x, h - layout.bottom - 4 - barH);
+      if (options.showPointLabels) {
+        ctx.fillStyle = "#111";
+        ctx.font = "10px MS Sans Serif, Arial";
+        ctx.fillText(String(value), x, h - layout.bottom - 4 - barH);
+      }
     });
     ctx.fillStyle = "#111";
     ctx.font = "11px MS Sans Serif, Arial";
-    ctx.fillText(row.label.slice(0, 12), groupX, h - 18);
+    drawClampedText(ctx, row.label.slice(0, 12), groupX, h - 26, layout.left, w - layout.right);
   });
+  drawChartAxisTitles(ctx, { ...layout, w, h }, options);
   drawLegend(ctx, data.variables, colors, layout.legendX, 14);
 }
 
 function drawBarChart(ctx, data, w, h) {
-  const colors = chartColors();
+  const options = normalizeDataOptions(data.options, "chart", data.variables);
+  const colors = seriesColors(data);
   const values = data.rows.flatMap((row) => data.variables.map((variable) => numberFromRow(row, variable.key)));
   const max = Math.max(1, ...values);
-  const left = 84;
+  const left = 92;
   const top = 24;
-  const layout = chartPlotLayout(w, left, top, 28);
+  const layout = chartPlotLayout(w, left, top, 46);
   const right = layout.right;
-  const bottom = 28;
+  const bottom = layout.bottom;
   const rowH = Math.max(22, (h - top - bottom) / Math.max(1, data.rows.length));
   drawAxes(ctx, w, h, left, top, right, bottom);
+  drawHorizontalValueTicks(ctx, { left, top, right, bottom, w, h }, max, options);
   data.rows.forEach((row, rowIndex) => {
     const y = top + rowIndex * rowH + 5;
     data.variables.forEach((variable, varIndex) => {
@@ -5018,22 +5812,27 @@ function drawBarChart(ctx, data, w, h) {
       const barW = (Math.max(80, w - left - right) * value) / max;
       ctx.fillStyle = colors[varIndex % colors.length];
       ctx.fillRect(left, y + varIndex * (barH + 2), barW, barH);
-      ctx.fillStyle = "#111";
-      ctx.font = "10px MS Sans Serif, Arial";
-      ctx.fillText(String(value), left + barW + 4, y + varIndex * (barH + 2) + barH);
+      if (options.showPointLabels) {
+        ctx.fillStyle = "#111";
+        ctx.font = "10px MS Sans Serif, Arial";
+        drawClampedText(ctx, String(value), left + barW + 4, y + varIndex * (barH + 2) + barH, left, w - right + 18);
+      }
     });
     ctx.fillStyle = "#111";
     ctx.font = "11px MS Sans Serif, Arial";
-    ctx.fillText(row.label.slice(0, 12), 10, y + 12);
+    drawClampedText(ctx, row.label.slice(0, 12), 10, y + 12, 4, left - 4);
   });
+  drawChartAxisTitles(ctx, { left, top, right, bottom, w, h }, options);
   drawLegend(ctx, data.variables, colors, layout.legendX, 14);
 }
 
 function drawStackedColumnChart(ctx, data, w, h) {
-  const layout = chartPlotLayout(w, 46, 22, 40);
+  const options = normalizeDataOptions(data.options, "chart", data.variables);
+  const layout = chartPlotLayout(w, 56, 24, 52);
   drawAxes(ctx, w, h, layout.left, layout.top, layout.right, layout.bottom);
-  const colors = chartColors();
+  const colors = seriesColors(data);
   const max = Math.max(1, ...data.rows.map((row) => data.variables.reduce((sum, variable) => sum + numberFromRow(row, variable.key), 0)));
+  drawVerticalValueTicks(ctx, { ...layout, w, h }, max, options);
   const plotW = Math.max(80, w - layout.left - layout.right);
   const plotH = Math.max(80, h - layout.top - layout.bottom);
   const groupW = Math.max(36, plotW / Math.max(1, data.rows.length));
@@ -5050,21 +5849,24 @@ function drawStackedColumnChart(ctx, data, w, h) {
     });
     ctx.fillStyle = "#111";
     ctx.font = "11px MS Sans Serif, Arial";
-    ctx.fillText(row.label.slice(0, 12), x - 2, h - 18);
+    drawClampedText(ctx, row.label.slice(0, 12), x - 2, h - 26, layout.left, w - layout.right);
   });
+  drawChartAxisTitles(ctx, { ...layout, w, h }, options);
   drawLegend(ctx, data.variables, colors, layout.legendX, 14);
 }
 
 function drawLineChart(ctx, data, w, h, fillArea) {
-  const colors = chartColors();
+  const options = normalizeDataOptions(data.options, "chart", data.variables);
+  const colors = seriesColors(data);
   const values = data.rows.flatMap((row) => data.variables.map((variable) => numberFromRow(row, variable.key)));
   const max = Math.max(1, ...values);
-  const left = 46;
+  const left = 56;
   const top = 24;
-  const bottom = 42;
+  const bottom = 54;
   const layout = chartPlotLayout(w, left, top, bottom);
   const right = layout.right;
   drawAxes(ctx, w, h, left, top, right, bottom);
+  drawVerticalValueTicks(ctx, { left, top, right, bottom, w, h }, max, options);
   data.variables.forEach((variable, varIndex) => {
     const points = data.rows.map((row, rowIndex) => ({
       x: left + ((w - left - right) * rowIndex) / Math.max(1, data.rows.length - 1),
@@ -5091,13 +5893,14 @@ function drawLineChart(ctx, data, w, h, fillArea) {
     const x = left + ((w - left - right) * index) / Math.max(1, data.rows.length - 1);
     ctx.fillStyle = "#111";
     ctx.font = "11px MS Sans Serif, Arial";
-    ctx.fillText(row.label.slice(0, 10), x - 10, h - 18);
+    drawClampedText(ctx, row.label.slice(0, 10), x - 10, h - 27, left, w - right);
   });
+  drawChartAxisTitles(ctx, { left, top, right, bottom, w, h }, options);
   drawLegend(ctx, data.variables, colors, layout.legendX, 14);
 }
 
 function drawPieChart(ctx, data, w, h, doughnut) {
-  const colors = chartColors();
+  const colors = rowColors(data);
   const variable = data.variables[0];
   const total = Math.max(1, data.rows.reduce((sum, row) => sum + Math.max(0, numberFromRow(row, variable.key)), 0));
   const cx = w * 0.38;
@@ -5127,7 +5930,7 @@ function drawPieChart(ctx, data, w, h, doughnut) {
 }
 
 function drawRadarChart(ctx, data, w, h) {
-  const colors = chartColors();
+  const colors = seriesColors(data);
   const cx = w * 0.48;
   const cy = h * 0.54;
   const radius = Math.min(w, h) * 0.31;
@@ -5221,6 +6024,11 @@ function ensureGraphInteraction(widget, canvas) {
     if (!is3DGraphData(decodeDataSet(widget.dataset.graph, "graph"))) return false;
     event.preventDefault();
     event.stopPropagation();
+    try {
+      canvas.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Some Electron/Chromium builds throw if the pointer is already captured.
+    }
     activePointerId = id;
     start = { x: event.clientX, y: event.clientY, rotation: graphRotation(widget) };
     selectObject(widget);
@@ -5229,6 +6037,11 @@ function ensureGraphInteraction(widget, canvas) {
   };
   const finishDrag = () => {
     document.body.classList.remove("dragging-graph");
+    try {
+      if (typeof activePointerId === "number") canvas.releasePointerCapture?.(activePointerId);
+    } catch {
+      // Capture may already be gone when the pointer leaves the canvas.
+    }
     start = null;
     activePointerId = null;
     const owner = widget.closest("#editor, #templateEditor, #phraseExpansionEditor, #cardFront, #cardBack") || els.editor;
@@ -5245,15 +6058,21 @@ function ensureGraphInteraction(widget, canvas) {
     event.preventDefault();
     event.stopPropagation();
     document.removeEventListener("pointermove", move, true);
+    window.removeEventListener("pointermove", move, true);
     document.removeEventListener("pointerup", end, true);
+    window.removeEventListener("pointerup", end, true);
     document.removeEventListener("pointercancel", end, true);
+    window.removeEventListener("pointercancel", end, true);
     finishDrag();
   };
   const begin = (event) => {
     if (!beginDrag(event, event.pointerId)) return;
     document.addEventListener("pointermove", move, true);
+    window.addEventListener("pointermove", move, true);
     document.addEventListener("pointerup", end, true);
+    window.addEventListener("pointerup", end, true);
     document.addEventListener("pointercancel", end, true);
+    window.addEventListener("pointercancel", end, true);
   };
   const mouseMove = (event) => {
     if (!start || activePointerId !== "mouse") return;
@@ -5266,13 +6085,17 @@ function ensureGraphInteraction(widget, canvas) {
     event.preventDefault();
     event.stopPropagation();
     document.removeEventListener("mousemove", mouseMove, true);
+    window.removeEventListener("mousemove", mouseMove, true);
     document.removeEventListener("mouseup", mouseEnd, true);
+    window.removeEventListener("mouseup", mouseEnd, true);
     finishDrag();
   };
   const mouseBegin = (event) => {
     if (event.button !== 0 || !beginDrag(event, "mouse")) return;
     document.addEventListener("mousemove", mouseMove, true);
+    window.addEventListener("mousemove", mouseMove, true);
     document.addEventListener("mouseup", mouseEnd, true);
+    window.addEventListener("mouseup", mouseEnd, true);
   };
   canvas.addEventListener("pointerdown", begin, true);
   canvas.addEventListener("mousedown", mouseBegin, true);
@@ -5418,6 +6241,7 @@ function dataDialogHtml(data, kind) {
         <div class="data-var-row" data-var-row="${index}">
           <span>${variable.key.toUpperCase()}</span>
           <input data-var-name="${index}" value="${escapeHtml(variable.name)}" />
+          <input type="color" data-var-color="${index}" value="${escapeHtml(variable.color || chartColors()[index % chartColors().length])}" title="Series color" />
           <button type="button" data-delete-variable="${index}" ${data.variables.length <= minVars ? "disabled" : ""}>X</button>
         </div>
       `
@@ -5429,6 +6253,7 @@ function dataDialogHtml(data, kind) {
       (row, rowIndex) => `
         <tr>
           <td contenteditable="true" data-cell="label">${escapeHtml(row.label || `Row ${rowIndex + 1}`)}</td>
+          <td><input type="color" data-row-color="${rowIndex}" value="${escapeHtml(row.color || chartColors()[rowIndex % chartColors().length])}" title="Point or slice color" /></td>
           ${data.variables.map((variable) => `<td contenteditable="true" data-cell="${variable.key}">${escapeHtml(numberFromRow(row, variable.key))}</td>`).join("")}
           <td><button type="button" data-delete-row="${rowIndex}">X</button></td>
         </tr>
@@ -5446,10 +6271,21 @@ function dataDialogHtml(data, kind) {
       <label>Title</label>
       <input data-data-title value="${escapeHtml(data.title)}" />
     </div>
+    <fieldset class="data-options-grid">
+      <legend>Axes And Labels</legend>
+      <label>X axis title</label>
+      <input data-axis-title="x" value="${escapeHtml(data.options?.xTitle || data.variables[0]?.name || "X")}" />
+      <label>Y axis title</label>
+      <input data-axis-title="y" value="${escapeHtml(data.options?.yTitle || data.variables[1]?.name || "Value")}" />
+      ${kind === "graph" && data.variables[2] ? `<label>Z axis title</label><input data-axis-title="z" value="${escapeHtml(data.options?.zTitle || data.variables[2]?.name || "Z")}" />` : ""}
+      <label><input type="checkbox" data-show-ticks ${data.options?.showTicks !== false ? "checked" : ""} /> Show axis numbers</label>
+      <label><input type="checkbox" data-show-axis-titles ${data.options?.showAxisTitles !== false ? "checked" : ""} /> Show axis titles</label>
+      <label><input type="checkbox" data-show-point-labels ${data.options?.showPointLabels !== false ? "checked" : ""} /> Show point labels</label>
+    </fieldset>
     <div class="data-var-grid">${vars}</div>
     <div class="data-grid-shell">
       <table class="data-grid-table">
-        <thead><tr><th>Label</th>${headers}<th></th></tr></thead>
+        <thead><tr><th>Label</th><th>Color</th>${headers}<th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
@@ -5464,17 +6300,29 @@ function readDataDialog(root, kind) {
   const keys = ["x", "y", "z"];
   const variables = [...root.querySelectorAll("[data-var-name]")].slice(0, 3).map((input, index) => ({
     key: keys[index],
-    name: normalizeNotebookName(input.value) || keys[index].toUpperCase()
+    name: normalizeNotebookName(input.value) || keys[index].toUpperCase(),
+    color: normalizeHexColor(root.querySelector(`[data-var-color="${index}"]`)?.value) || chartColors()[index % chartColors().length]
   }));
   const rows = [...root.querySelectorAll(".data-grid-table tbody tr")].map((tr, index) => {
-    const row = { label: normalizeNotebookName(tr.querySelector("[data-cell='label']")?.innerText) || `Row ${index + 1}` };
+    const row = {
+      label: normalizeNotebookName(tr.querySelector("[data-cell='label']")?.innerText) || `Row ${index + 1}`,
+      color: normalizeHexColor(tr.querySelector(`[data-row-color="${index}"]`)?.value) || chartColors()[index % chartColors().length]
+    };
     variables.forEach((variable) => {
       const text = tr.querySelector(`[data-cell='${variable.key}']`)?.innerText || "0";
       row[variable.key] = Number(text.replace(/,/g, "")) || 0;
     });
     return row;
   });
-  return normalizeDataSet({ type: root.querySelector("[data-data-type]")?.value, title: normalizeNotebookName(root.querySelector("[data-data-title]")?.value) || "Untitled Data", variables, rows }, kind);
+  const options = {
+    xTitle: normalizeNotebookName(root.querySelector("[data-axis-title='x']")?.value),
+    yTitle: normalizeNotebookName(root.querySelector("[data-axis-title='y']")?.value),
+    zTitle: normalizeNotebookName(root.querySelector("[data-axis-title='z']")?.value),
+    showTicks: Boolean(root.querySelector("[data-show-ticks]")?.checked),
+    showAxisTitles: Boolean(root.querySelector("[data-show-axis-titles]")?.checked),
+    showPointLabels: Boolean(root.querySelector("[data-show-point-labels]")?.checked)
+  };
+  return normalizeDataSet({ type: root.querySelector("[data-data-type]")?.value, title: normalizeNotebookName(root.querySelector("[data-data-title]")?.value) || "Untitled Data", variables, rows, options }, kind);
 }
 
 function defaultDataSet(kind) {
@@ -5491,7 +6339,15 @@ function defaultDataSet(kind) {
         { label: "Week 1", x: 1, y: 2, z: 1 },
         { label: "Week 2", x: 3, y: 5, z: 4 },
         { label: "Week 3", x: 6, y: 8, z: 7 }
-      ]
+      ],
+      options: {
+        xTitle: "Practice",
+        yTitle: "Recall",
+        zTitle: "Confidence",
+        showTicks: true,
+        showAxisTitles: true,
+        showPointLabels: true
+      }
     };
   }
   return {
@@ -5505,7 +6361,14 @@ function defaultDataSet(kind) {
       { label: "Topic A", x: 7, y: 4 },
       { label: "Topic B", x: 5, y: 8 },
       { label: "Topic C", x: 9, y: 6 }
-    ]
+    ],
+    options: {
+      xTitle: "Topic",
+      yTitle: "Value",
+      showTicks: true,
+      showAxisTitles: true,
+      showPointLabels: true
+    }
   };
 }
 
@@ -5523,11 +6386,15 @@ function normalizeDataSet(data, kind) {
   const normalizedVariables = variables.slice(0, 3).map((variable, index) => ({
     key: keys[index],
     sourceKey: variable.key || keys[index],
-    name: normalizeNotebookName(variable.name) || keys[index].toUpperCase()
+    name: normalizeNotebookName(variable.name) || keys[index].toUpperCase(),
+    color: normalizeHexColor(variable.color) || chartColors()[index % chartColors().length]
   }));
   const sourceRows = Array.isArray(data?.rows) && data.rows.length ? data.rows : [blankDataRow(normalizedVariables, 1)];
   const rows = sourceRows.map((row, index) => {
-    const normalized = { label: normalizeNotebookName(row.label) || `Row ${index + 1}` };
+    const normalized = {
+      label: normalizeNotebookName(row.label) || `Row ${index + 1}`,
+      color: normalizeHexColor(row.color) || chartColors()[index % chartColors().length]
+    };
     normalizedVariables.forEach((variable) => {
       normalized[variable.key] = numberFromRow(row, variable.sourceKey);
     });
@@ -5536,8 +6403,23 @@ function normalizeDataSet(data, kind) {
   return {
     type,
     title: normalizeNotebookName(data?.title) || (kind === "graph" ? "Data Graph" : "Chart"),
-    variables: normalizedVariables.map(({ key, name }) => ({ key, name })),
-    rows
+    variables: normalizedVariables.map(({ key, name, color }) => ({ key, name, color })),
+    rows,
+    options: normalizeDataOptions(data?.options, kind, normalizedVariables)
+  };
+}
+
+function normalizeDataOptions(options = {}, kind, variables = []) {
+  const xFallback = kind === "chart" ? "Category" : variables[0]?.name || "X";
+  const yFallback = kind === "chart" ? variables[0]?.name || "Value" : variables[1]?.name || "Y";
+  const zFallback = variables[2]?.name || "Z";
+  return {
+    xTitle: normalizeNotebookName(options.xTitle) || xFallback,
+    yTitle: normalizeNotebookName(options.yTitle) || yFallback,
+    zTitle: normalizeNotebookName(options.zTitle) || zFallback,
+    showTicks: options.showTicks !== false,
+    showAxisTitles: options.showAxisTitles !== false,
+    showPointLabels: options.showPointLabels !== false
   };
 }
 
@@ -5548,6 +6430,7 @@ function minVariablesFor(kind, type) {
 
 function blankDataRow(variables, index) {
   const row = { label: `Row ${index}` };
+  row.color = chartColors()[(index - 1) % chartColors().length];
   variables.forEach((variable) => {
     row[variable.key] = 0;
   });
@@ -5594,6 +6477,98 @@ function drawAxes(ctx, w, h, left, top, right, bottom) {
   ctx.stroke();
 }
 
+function drawClampedText(ctx, text, x, y, minX = 2, maxX = 9999) {
+  const value = String(text || "");
+  const width = ctx.measureText(value).width;
+  ctx.fillText(value, clamp(x, minX, Math.max(minX, maxX - width)), y);
+}
+
+function niceTickValue(value) {
+  if (Math.abs(value) >= 10 || Number.isInteger(value)) return String(Math.round(value));
+  return String(Math.round(value * 10) / 10);
+}
+
+function draw2DTicks(ctx, bounds, xMax, yMax, options = {}) {
+  if (options.showTicks === false) return;
+  const { left, top, right, bottom, w, h } = bounds;
+  const plotW = w - left - right;
+  const plotH = h - top - bottom;
+  ctx.save();
+  ctx.font = "10px MS Sans Serif, Arial";
+  ctx.fillStyle = "#333";
+  ctx.strokeStyle = "#d0d0d0";
+  ctx.lineWidth = 1;
+  for (let index = 0; index <= 4; index += 1) {
+    const ratio = index / 4;
+    const x = left + plotW * ratio;
+    const y = h - bottom - plotH * ratio;
+    ctx.beginPath();
+    ctx.moveTo(x, h - bottom);
+    ctx.lineTo(x, h - bottom + 4);
+    ctx.moveTo(left - 4, y);
+    ctx.lineTo(left, y);
+    ctx.stroke();
+    drawClampedText(ctx, niceTickValue(xMax * ratio), x - 8, h - bottom + 16, left - 8, w - right + 18);
+    const yLabel = niceTickValue(yMax * ratio);
+    ctx.fillText(yLabel, Math.max(2, left - ctx.measureText(yLabel).width - 8), y + 3);
+  }
+  ctx.restore();
+}
+
+function drawVerticalValueTicks(ctx, bounds, max, options = {}) {
+  if (options.showTicks === false) return;
+  const { left, top, bottom, w, h } = bounds;
+  const plotH = h - top - bottom;
+  ctx.save();
+  ctx.font = "10px MS Sans Serif, Arial";
+  ctx.fillStyle = "#333";
+  ctx.strokeStyle = "#d0d0d0";
+  for (let index = 0; index <= 4; index += 1) {
+    const ratio = index / 4;
+    const y = h - bottom - plotH * ratio;
+    ctx.beginPath();
+    ctx.moveTo(left - 4, y);
+    ctx.lineTo(left, y);
+    ctx.stroke();
+    const label = niceTickValue(max * ratio);
+    ctx.fillText(label, Math.max(2, left - ctx.measureText(label).width - 8), y + 3);
+  }
+  ctx.restore();
+}
+
+function drawHorizontalValueTicks(ctx, bounds, max, options = {}) {
+  if (options.showTicks === false) return;
+  const { left, right, bottom, w, h } = bounds;
+  const plotW = w - left - right;
+  ctx.save();
+  ctx.font = "10px MS Sans Serif, Arial";
+  ctx.fillStyle = "#333";
+  ctx.strokeStyle = "#d0d0d0";
+  for (let index = 0; index <= 4; index += 1) {
+    const ratio = index / 4;
+    const x = left + plotW * ratio;
+    ctx.beginPath();
+    ctx.moveTo(x, h - bottom);
+    ctx.lineTo(x, h - bottom + 4);
+    ctx.stroke();
+    drawClampedText(ctx, niceTickValue(max * ratio), x - 8, h - bottom + 15, left - 4, w - right + 16);
+  }
+  ctx.restore();
+}
+
+function drawChartAxisTitles(ctx, bounds, options = {}) {
+  if (options.showAxisTitles === false) return;
+  const { left, top, right, bottom, w, h } = bounds;
+  ctx.save();
+  ctx.font = "11px MS Sans Serif, Arial";
+  ctx.fillStyle = "#111";
+  drawClampedText(ctx, options.xTitle || "Category", left + (w - left - right) / 2 - 22, h - 8, left, w - right + 50);
+  ctx.translate(15, top + (h - top - bottom) / 2 + 24);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(options.yTitle || "Value", 0, 0);
+  ctx.restore();
+}
+
 function chartPlotLayout(w, left = 46, top = 24, bottom = 40) {
   const legendWidth = Math.min(150, Math.max(112, w * 0.24));
   return { left, top, right: legendWidth + 22, bottom, legendX: w - legendWidth - 10, legendWidth };
@@ -5621,6 +6596,16 @@ function chartColors() {
   return ["#2566a8", "#347a3a", "#7d4e9f", "#b7791f", "#b54848", "#008080", "#7030a0", "#6b5b2a"];
 }
 
+function seriesColors(data) {
+  const fallback = chartColors();
+  return data.variables.map((variable, index) => normalizeHexColor(variable.color) || fallback[index % fallback.length]);
+}
+
+function rowColors(data) {
+  const fallback = chartColors();
+  return data.rows.map((row, index) => normalizeHexColor(row.color) || fallback[index % fallback.length]);
+}
+
 function chartTypeLabel(type) {
   const all = [...DATA_CHART_TYPES.chart, ...DATA_CHART_TYPES.graph];
   return all.find(([value]) => value === type)?.[1] || "Column";
@@ -5628,22 +6613,26 @@ function chartTypeLabel(type) {
 
 function draw2DGraph(ctx, data, w, h, type = "scatter") {
   const [xVar, yVar] = data.variables;
-  const points = data.rows.map((row) => ({ label: row.label, x: numberFromRow(row, xVar.key), y: numberFromRow(row, yVar.key) }));
+  const options = normalizeDataOptions(data.options, "graph", data.variables);
+  const pointColors = rowColors(data);
+  const seriesColor = seriesColors(data)[0] || "#2566a8";
+  const points = data.rows.map((row, index) => ({ label: row.label, color: pointColors[index % pointColors.length], x: numberFromRow(row, xVar.key), y: numberFromRow(row, yVar.key) }));
   const xMax = Math.max(1, ...points.map((point) => point.x));
   const yMax = Math.max(1, ...points.map((point) => point.y));
-  const left = 52;
-  const top = 22;
-  const right = 24;
-  const bottom = 42;
+  const left = 62;
+  const top = 26;
+  const right = 78;
+  const bottom = 58;
   drawAxes(ctx, w, h, left, top, right, bottom);
+  draw2DTicks(ctx, { left, top, right, bottom, w, h }, xMax, yMax, options);
   const projected = points.map((point) => ({
     ...point,
     sx: left + ((w - left - right) * point.x) / xMax,
     sy: h - bottom - ((h - top - bottom) * point.y) / yMax
   }));
   if (type === "lineGraph" || type === "areaGraph") {
-    ctx.strokeStyle = "#2566a8";
-    ctx.fillStyle = "#2566a855";
+    ctx.strokeStyle = seriesColor;
+    ctx.fillStyle = `${seriesColor}55`;
     ctx.lineWidth = 2;
     ctx.beginPath();
     projected.forEach((point, index) => (index ? ctx.lineTo(point.sx, point.sy) : ctx.moveTo(point.sx, point.sy)));
@@ -5656,10 +6645,10 @@ function draw2DGraph(ctx, data, w, h, type = "scatter") {
     ctx.stroke();
   }
   projected.forEach((point) => {
-    const x = left + ((w - left - right) * point.x) / xMax;
-    const y = h - bottom - ((h - top - bottom) * point.y) / yMax;
+    const x = point.sx;
+    const y = point.sy;
     const size = type === "bubble" ? clamp(4 + (point.x + point.y) / Math.max(1, xMax + yMax) * 14, 5, 18) : 6;
-    ctx.fillStyle = "#b54848";
+    ctx.fillStyle = point.color;
     if (type === "bubble") {
       ctx.beginPath();
       ctx.arc(x, y, size, 0, Math.PI * 2);
@@ -5669,22 +6658,32 @@ function draw2DGraph(ctx, data, w, h, type = "scatter") {
     } else {
       ctx.fillRect(x - 3, y - 3, 6, 6);
     }
+    if (options.showPointLabels) {
+      ctx.fillStyle = "#111";
+      ctx.font = "11px MS Sans Serif, Arial";
+      drawClampedText(ctx, point.label.slice(0, 16), x + size + 3, y - 5, left + 2, w - 6);
+    }
+  });
+  if (options.showAxisTitles) {
     ctx.fillStyle = "#111";
     ctx.font = "11px MS Sans Serif, Arial";
-    ctx.fillText(point.label.slice(0, 12), x + size + 3, y - 5);
-  });
-  ctx.fillText(xVar.name, w - 110, h - 14);
-  ctx.save();
-  ctx.translate(14, 115);
-  ctx.rotate(-Math.PI / 2);
-  ctx.fillText(yVar.name, 0, 0);
-  ctx.restore();
+    drawClampedText(ctx, options.xTitle || xVar.name, left + (w - left - right) / 2 - 24, h - 14, left, w - right + 50);
+    ctx.save();
+    ctx.translate(16, top + (h - top - bottom) / 2 + 24);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText(options.yTitle || yVar.name, 0, 0);
+    ctx.restore();
+  }
 }
 
 function draw3DGraph(ctx, data, w, h, rotation) {
   const [xVar, yVar, zVar] = data.variables;
-  const points = data.rows.map((row) => ({
+  const options = normalizeDataOptions(data.options, "graph", data.variables);
+  const pointColors = rowColors(data);
+  const seriesColor = seriesColors(data)[0] || "#2566a8";
+  const points = data.rows.map((row, index) => ({
     label: row.label,
+    color: pointColors[index % pointColors.length],
     x: numberFromRow(row, xVar.key),
     y: numberFromRow(row, yVar.key),
     z: numberFromRow(row, zVar.key)
@@ -5694,16 +6693,47 @@ function draw3DGraph(ctx, data, w, h, rotation) {
     y: Math.max(1, ...points.map((point) => point.y)),
     z: Math.max(1, ...points.map((point) => point.z))
   };
-  const origin = { x: w * 0.42, y: h * 0.72 };
-  const scale = Math.min(w, h) * 0.52;
-  const project = (x, y, z) => {
+  const rawProject = (x, y, z) => {
     const yaw = rotation.yaw;
     const pitch = rotation.pitch;
     const rx = x * Math.cos(yaw) - z * Math.sin(yaw);
     const rz = x * Math.sin(yaw) + z * Math.cos(yaw);
     const ry = y * Math.cos(pitch) - rz * Math.sin(pitch);
     const depth = y * Math.sin(pitch) + rz * Math.cos(pitch);
-    return { x: origin.x + rx * scale, y: origin.y - ry * scale, depth };
+    return { x: rx, y: -ry, depth };
+  };
+  const normalizedPoints = points.map((point) => ({
+    ...point,
+    nx: point.x / max.x,
+    ny: point.y / max.y,
+    nz: point.z / max.z
+  }));
+  const rawOrigin = rawProject(0, 0, 0);
+  const rawX = rawProject(1, 0, 0);
+  const rawY = rawProject(0, 1, 0);
+  const rawZ = rawProject(0, 0, 1);
+  const rawPoints = normalizedPoints.map((point) => rawProject(point.nx, point.ny, point.nz));
+  const rawBounds = [rawOrigin, rawX, rawY, rawZ, ...rawPoints].reduce(
+    (bounds, point) => ({
+      minX: Math.min(bounds.minX, point.x),
+      maxX: Math.max(bounds.maxX, point.x),
+      minY: Math.min(bounds.minY, point.y),
+      maxY: Math.max(bounds.maxY, point.y)
+    }),
+    { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
+  );
+  const margin = { left: 54, right: 86, top: 30, bottom: 44 };
+  const rawW = Math.max(0.1, rawBounds.maxX - rawBounds.minX);
+  const rawH = Math.max(0.1, rawBounds.maxY - rawBounds.minY);
+  const fitScale = Math.min((w - margin.left - margin.right) / rawW, (h - margin.top - margin.bottom) / rawH) * 0.82;
+  const scale = Math.max(48, Math.min(220, fitScale));
+  const origin = {
+    x: margin.left + (w - margin.left - margin.right - rawW * scale) / 2 - rawBounds.minX * scale,
+    y: margin.top + (h - margin.top - margin.bottom - rawH * scale) / 2 - rawBounds.minY * scale
+  };
+  const project = (x, y, z) => {
+    const raw = rawProject(x, y, z);
+    return { x: origin.x + raw.x * scale, y: origin.y + raw.y * scale, depth: raw.depth };
   };
   const xAxis = project(1, 0, 0);
   const yAxis = project(0, 1, 0);
@@ -5720,15 +6750,23 @@ function draw3DGraph(ctx, data, w, h, rotation) {
   ctx.stroke();
   ctx.fillStyle = "#111";
   ctx.font = "11px MS Sans Serif, Arial";
-  ctx.fillText(xVar.name, xAxis.x - 35, xAxis.y + 14);
-  ctx.fillText(yVar.name, yAxis.x + 6, yAxis.y + 10);
-  ctx.fillText(zVar.name, zAxis.x + 4, zAxis.y);
-  const projectedPoints = points
+  if (options.showAxisTitles) {
+    drawClampedText(ctx, options.xTitle || xVar.name, xAxis.x - 35, xAxis.y + 14, 2, w - 2);
+    drawClampedText(ctx, options.yTitle || yVar.name, yAxis.x + 6, yAxis.y + 10, 2, w - 2);
+    drawClampedText(ctx, options.zTitle || zVar.name, zAxis.x + 4, zAxis.y, 2, w - 2);
+  }
+  if (options.showTicks) {
+    [
+      [xAxis, max.x],
+      [yAxis, max.y],
+      [zAxis, max.z]
+    ].forEach(([axis, value]) => {
+      drawClampedText(ctx, niceTickValue(value), axis.x - 8, axis.y - 4, 2, w - 2);
+    });
+  }
+  const projectedPoints = normalizedPoints
     .map((point) => {
-      const nx = point.x / max.x;
-      const ny = point.y / max.y;
-      const nz = point.z / max.z;
-      const projected = project(nx, ny, nz);
+      const projected = project(point.nx, point.ny, point.nz);
       return {
         ...point,
         sx: projected.x,
@@ -5738,7 +6776,7 @@ function draw3DGraph(ctx, data, w, h, rotation) {
     })
     .sort((a, b) => a.depth - b.depth);
   if (data.type === "threeDLine") {
-    ctx.strokeStyle = "#2566a8";
+    ctx.strokeStyle = seriesColor;
     ctx.lineWidth = 2;
     ctx.beginPath();
     projectedPoints.forEach((point, index) => (index ? ctx.lineTo(point.sx, point.sy) : ctx.moveTo(point.sx, point.sy)));
@@ -5747,14 +6785,16 @@ function draw3DGraph(ctx, data, w, h, rotation) {
   projectedPoints
     .forEach((point) => {
       const size = clamp(6 + point.depth * 5, 4, 13);
-      ctx.fillStyle = "#7d4e9f";
+      ctx.fillStyle = point.color;
       ctx.beginPath();
       ctx.arc(point.sx, point.sy, size, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = "#111";
       ctx.stroke();
-      ctx.fillStyle = "#111";
-      ctx.fillText(point.label.slice(0, 12), point.sx + size + 3, point.sy - 3);
+      if (options.showPointLabels) {
+        ctx.fillStyle = "#111";
+        drawClampedText(ctx, point.label.slice(0, 16), point.sx + size + 3, point.sy - 3, 2, w - 2);
+      }
     });
 }
 
@@ -6079,7 +7119,7 @@ function openRetroDialog({ title, message, icon, fields = [], buttons }) {
 function closeRetroDialog(value) {
   if (!dialogResolve) return;
   els.modalOverlay.hidden = true;
-  els.modalOverlay.querySelector(".retro-dialog")?.classList.remove("page-setup-dialog");
+  els.modalOverlay.querySelector(".retro-dialog")?.classList.remove("page-setup-dialog", "has-symbol");
   const resolve = dialogResolve;
   dialogResolve = null;
   resolve(value);
