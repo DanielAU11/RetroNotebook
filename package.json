@@ -21,6 +21,8 @@
     "electron": "^39.8.5"
   },
   "dependencies": {
-    "@react95/icons": "^2.5.3"
+    "@react95/icons": "^2.5.3",
+    "dictionary-en-us": "^2.2.1",
+    "nspell": "^2.1.5"
   }
 }

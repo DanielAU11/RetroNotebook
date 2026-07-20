@@ -1,8 +1,38 @@
 const { app, BrowserWindow, shell, ipcMain, net } = require("electron");
 const path = require("path");
+const dictionary = require("dictionary-en-us");
+const nspell = require("nspell");
 
 const windows = new Set();
 const appIconPath = path.join(__dirname, "..", "appicon.ico");
+let spellchecker = null;
+const spellcheckerReady = new Promise((resolve) => {
+  dictionary((error, dict) => {
+    if (!error) {
+      try {
+        spellchecker = nspell(dict);
+      } catch {
+        spellchecker = null;
+      }
+    }
+    resolve(spellchecker);
+  });
+});
+
+function normalizedSpellWord(word) {
+  return String(word || "").trim().replace(/^[^A-Za-z']+|[^A-Za-z']+$/g, "");
+}
+
+async function suggestSpellings(word) {
+  const value = normalizedSpellWord(word);
+  const checker = await spellcheckerReady;
+  if (!value || !checker) return { word: value, correct: true, suggestions: [] };
+  return {
+    word: value,
+    correct: checker.correct(value),
+    suggestions: checker.suggest(value).filter(Boolean).slice(0, 8)
+  };
+}
 
 ipcMain.handle("citation:fetchText", async (_event, rawUrl) => {
   const url = String(rawUrl || "").trim();
@@ -36,11 +66,20 @@ ipcMain.handle("spellcheck:add", (event, word) => {
   const value = String(word || "").trim();
   if (!value) return false;
   try {
+    if (spellchecker) spellchecker.add(value);
     event.sender.session.addWordToSpellCheckerDictionary(value);
     return true;
   } catch {
     return false;
   }
+});
+
+ipcMain.handle("spellcheck:suggest", async (_event, word) => suggestSpellings(word));
+
+ipcMain.handle("spellcheck:checkWords", async (_event, words) => {
+  const uniqueWords = [...new Set((Array.isArray(words) ? words : []).map(normalizedSpellWord).filter(Boolean).slice(0, 500))];
+  const results = await Promise.all(uniqueWords.map(suggestSpellings));
+  return results;
 });
 
 function createWindow() {

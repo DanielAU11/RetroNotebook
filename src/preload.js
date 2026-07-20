@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld("retroNotebook", {
       return () => ipcRenderer.removeListener("spellcheck:context", listener);
     },
     replace: (suggestion) => ipcRenderer.invoke("spellcheck:replace", String(suggestion || "")),
-    addToDictionary: (word) => ipcRenderer.invoke("spellcheck:add", String(word || ""))
+    addToDictionary: (word) => ipcRenderer.invoke("spellcheck:add", String(word || "")),
+    suggest: (word) => ipcRenderer.invoke("spellcheck:suggest", String(word || "")),
+    checkWords: (words) => ipcRenderer.invoke("spellcheck:checkWords", Array.isArray(words) ? words.map((word) => String(word || "")) : [])
   }
 });

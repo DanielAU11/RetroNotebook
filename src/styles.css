@@ -2455,6 +2455,10 @@ fieldset {
   width: min(420px, calc(100vw - 32px));
 }
 
+.retro-dialog.table-dialog {
+  width: min(540px, calc(100vw - 32px));
+}
+
 .retro-dialog.page-setup-dialog {
   width: min(470px, calc(100vw - 32px));
 }
@@ -2541,33 +2545,59 @@ fieldset {
 }
 
 .insert-table-dialog fieldset:nth-of-type(2) {
-  display: grid;
-  grid-template-columns: 20px minmax(130px, 1fr) 92px;
-  align-items: center;
+  grid-template-columns: 1fr;
 }
 
 .insert-table-dialog .table-fit-option {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 20px minmax(130px, 1fr) 92px;
-  gap: 6px;
+  grid-template-columns: 18px minmax(220px, 1fr) 82px;
+  gap: 7px;
   align-items: center;
+  min-height: 38px;
+  padding: 5px 6px;
+  background: #d4d0c8;
+  box-shadow: inset -1px -1px #808080, inset 1px 1px #fff;
+  cursor: pointer;
 }
 
 .insert-table-dialog .table-fit-option input[type="radio"] {
-  width: auto;
+  width: 13px;
+  height: 13px;
+  min-width: 13px;
+  margin: 0;
+}
+
+.insert-table-dialog .table-fit-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  line-height: 1.1;
+}
+
+.insert-table-dialog .table-fit-copy strong {
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.insert-table-dialog .table-fit-copy small {
+  color: #333;
+  line-height: 1.1;
 }
 
 .insert-table-dialog .table-fit-option input[data-table-fixed] {
   grid-column: 3;
+  width: 76px;
+  min-width: 76px;
 }
 
 .insert-table-dialog .table-fit-option:not(.fixed) input[data-table-fixed] {
-  visibility: hidden;
+  display: none;
 }
 
-.insert-table-dialog .table-fit-option.active span {
-  font-weight: bold;
+.insert-table-dialog .table-fit-option.active {
+  background: #ece9d8;
+  box-shadow: inset -1px -1px #fff, inset 1px 1px #808080, inset -2px -2px #dfdfdf, inset 2px 2px #0a0a0a;
 }
 
 .insert-table-dialog input[type="color"] {
@@ -2778,6 +2808,59 @@ fieldset {
 
 .spellcheck-menu-items button:first-child:not(:disabled) {
   font-weight: bold;
+}
+
+.spellcheck-dialog .retro-dialog,
+.retro-dialog.spellcheck-dialog {
+  width: min(620px, calc(100vw - 36px));
+}
+
+.spellcheck-tool {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(210px, 1.2fr);
+  gap: 8px;
+}
+
+.spellcheck-tool fieldset {
+  grid-column: 1 / -1;
+}
+
+.spellcheck-issue-list,
+.spellcheck-suggestions,
+.spellcheck-dictionary {
+  min-height: 80px;
+  max-height: 170px;
+  overflow: auto;
+  padding: 4px;
+  background: #fff;
+  box-shadow: inset -1px -1px #fff, inset 1px 1px #808080, inset -2px -2px #dfdfdf, inset 2px 2px #0a0a0a;
+}
+
+.spellcheck-issue-list button,
+.spellcheck-suggestions button,
+.spellcheck-dictionary button {
+  width: 100%;
+  min-height: 22px;
+  margin-bottom: 3px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+
+.spellcheck-suggestions button {
+  display: block;
+}
+
+.spellcheck-issue-list button.active,
+.spellcheck-suggestions button.active {
+  background: #000080;
+  color: #fff;
+}
+
+.spellcheck-suggestion-panel {
+  display: grid;
+  gap: 6px;
 }
 
 .context-menu hr {

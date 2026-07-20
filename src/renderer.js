@@ -99,6 +99,21 @@ const AUTOCORRECT_MAP = {
   citaiton: "citation",
   diferrent: "different"
 };
+const BASE_SPELL_WORDS = `
+  a about above acid active add added addition after again against all allows alpha also an analog analogs analysis and any aqueous are artery as at automatically available
+  back based be because before beta between bibliography biology blood body both browser build button by calcium can canvas carbon card cards case cell center chart charts
+  citation citations class clear clinical column columns common confidence content control copy create current custom data decrease decreases delete dictionary document dose dosing
+  drug drugs due dynamic each easy edit editor effect effects equation equations every evidence example exam eye file first flashcard flashcards flow folder font footer for form from
+  gamma glaucoma good graph graphs green hard has have header headers help high highlight history hour html hyperlink if image images in increase increases inhibitor inhibitors insert
+  interaction internal into journal label labels latex learning left line link list manage math medication menu model monthly move name navy next note notebook notes number numbers
+  object obviously of off on one open option options order out outflow page pages paper paste pharmacology phrase phrases pressure preview print prostaglandin quiz recall reference
+  references reminder remove repeat repetition review right row rows save scale scan schedule section select selected sentence setup show smart spell spelling study style suggestion
+  suggestions superscript table tables tag tags template templates text the their them then there these this time title to toolbar tool tools topic type underline undo unit units url
+  use used user users value values view week weekly white with word words workspace write x y z zoom
+  person people patient patients student students teacher teachers author authors article articles essay essays sentence sentences paragraph paragraphs increase increased decreasing
+  obvious obviously wrong correct correction corrected prostaglandin prostaglandins blocker blockers agonist agonists antagonist antagonists analog analogue analogues medication medications
+`.split(/\s+/).filter(Boolean);
+const SPELL_WORD_SET = new Set([...BASE_SPELL_WORDS, ...Object.values(AUTOCORRECT_MAP)].map((word) => word.toLowerCase()));
 
 const els = {};
 let state;
@@ -656,7 +671,13 @@ function bindRichEditors() {
       activeRichEditor = editor;
       rememberSelectionForTarget(editor);
     });
-    editor.addEventListener("keyup", () => rememberSelectionForTarget(editor));
+    editor.addEventListener("keyup", (event) => {
+      if (/^(\s|[.,;:!?)]|Spacebar)$/.test(event.key) || event.key === " ") {
+        maybeAutocorrect(editor, { inputType: "insertText", data: event.key === "Spacebar" ? " " : event.key });
+        maybeAutocorrectWithDictionary(editor, event);
+      }
+      rememberSelectionForTarget(editor);
+    });
     editor.addEventListener("input", (event) => {
       maybeAutocorrect(editor, event);
       if (editor === els.editor) return;
@@ -678,6 +699,10 @@ function bindRichEditors() {
 function bindSpellcheckBridge() {
   window.retroNotebook?.spellcheck?.onContext?.((payload) => {
     const incomingWord = String(payload.word || "");
+    if (!incomingWord && spellcheckContext.word && Date.now() - spellcheckContext.at < 600) {
+      if (!els.contextMenu.hidden) renderSpellcheckMenuItems();
+      return;
+    }
     const keepRange = spellcheckContext.range
       && incomingWord
       && spellcheckContext.word
@@ -691,15 +716,22 @@ function bindSpellcheckBridge() {
       range: keepRange ? spellcheckContext.range : null
     };
     if (!els.contextMenu.hidden) renderSpellcheckMenuItems();
+    if (incomingWord) {
+      refreshNativeSpellcheckSuggestions(incomingWord, spellcheckContext.at);
+    }
   });
 }
 
+async function refreshNativeSpellcheckSuggestions(word, stamp) {
+  const result = await window.retroNotebook?.spellcheck?.suggest?.(word);
+  if (!result?.word || spellcheckContext.word !== word || spellcheckContext.at !== stamp) return;
+  const nativeSuggestions = Array.isArray(result.suggestions) ? result.suggestions : [];
+  spellcheckContext.suggestions = unique([...spellcheckContext.suggestions, ...nativeSuggestions, ...spellingSuggestionsFor(word, nativeSuggestions)]).slice(0, 8);
+  if (!els.contextMenu.hidden) renderSpellcheckMenuItems();
+}
+
 function showSpellcheckHelp() {
-  retroAlert(
-    "Spelling And Autocorrect",
-    "Spellcheck is active in pages, templates, phrases, and flashcards. Right-click an underlined word for suggestions; common typing slips are corrected after you type a space or punctuation mark.",
-    "info"
-  );
+  openSpellcheckTool();
 }
 
 function maybeAutocorrect(editor, event) {
@@ -717,7 +749,9 @@ function maybeAutocorrect(editor, event) {
   const match = before.match(/(^|[\s([{'"“‘])([A-Za-z]{2,})([\s.,;:!?)]?)$/);
   if (!match) return;
   const typed = match[2];
-  const replacement = AUTOCORRECT_MAP[typed.toLowerCase()];
+  const lower = typed.toLowerCase();
+  const suggestion = spellingSuggestionsFor(lower)[0];
+  const replacement = AUTOCORRECT_MAP[lower] || (shouldAutocorrect(lower, suggestion) ? suggestion : "");
   if (!replacement || replacement === typed) return;
   const corrected = typed[0] === typed[0].toUpperCase() ? replacement[0].toUpperCase() + replacement.slice(1) : replacement;
   const start = offset - match[3].length - typed.length;
@@ -733,6 +767,292 @@ function maybeAutocorrect(editor, event) {
     syncEditorNow();
     scheduleAutoPagination();
   }
+}
+
+async function maybeAutocorrectWithDictionary(editor, event) {
+  if (!editor?.isContentEditable) return;
+  if (event?.key && !/^(\s|[.,;:!?)]|Spacebar)$/.test(event.key) && event.key !== " ") return;
+  const info = wordBeforeCaret(editor);
+  if (!info?.word || info.word.length < 5 || isKnownSpelling(info.word)) return;
+  const result = await window.retroNotebook?.spellcheck?.suggest?.(info.word);
+  if (!result || result.correct) return;
+  const suggestion = unique([...(result.suggestions || []), ...spellingSuggestionsFor(info.word, result.suggestions || [])])[0];
+  if (!shouldAutocorrect(info.word, suggestion)) return;
+  try {
+    info.range.deleteContents();
+    const replacement = info.word[0] === info.word[0].toUpperCase() ? suggestion[0].toUpperCase() + suggestion.slice(1) : suggestion;
+    const node = document.createTextNode(replacement);
+    info.range.insertNode(node);
+    const after = document.createRange();
+    after.setStartAfter(node);
+    after.collapse(true);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(after);
+    rememberSelectionForTarget(editor);
+    syncRichEditor(editor);
+  } catch {
+    // Keep typing uninterrupted if the selection changed while the async dictionary responded.
+  }
+}
+
+function wordBeforeCaret(editor) {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount || !selection.isCollapsed) return null;
+  const node = selection.anchorNode;
+  if (!node || node.nodeType !== Node.TEXT_NODE || !editor.contains(node)) return null;
+  if (node.parentElement?.closest("code, pre, a, .latex-chip, .citation-ref, .retro-widget")) return null;
+  const offset = selection.anchorOffset;
+  const before = node.data.slice(0, offset);
+  const match = before.match(/(^|[\s([{'"“‘])([A-Za-z']{2,})([\s.,;:!?)]?)$/);
+  if (!match) return null;
+  const end = offset - match[3].length;
+  const start = end - match[2].length;
+  const range = document.createRange();
+  range.setStart(node, start);
+  range.setEnd(node, end);
+  return { word: match[2], range };
+}
+
+function shouldAutocorrect(word, suggestion) {
+  if (!suggestion || word.length < 5 || isKnownSpelling(word)) return false;
+  if (/^[A-Z]/.test(word) || /[^a-z']/i.test(word)) return false;
+  return spellingDistance(word.toLowerCase(), suggestion.toLowerCase()) <= 2;
+}
+
+function isKnownSpelling(word) {
+  const lower = String(word || "").toLowerCase();
+  if (!lower || lower.length < 2) return true;
+  if (SPELL_WORD_SET.has(lower)) return true;
+  return Array.isArray(state?.customDictionary) && state.customDictionary.includes(lower);
+}
+
+function spellingSuggestionsFor(word, nativeSuggestions = []) {
+  const lower = String(word || "").toLowerCase().replace(/^[^a-z']+|[^a-z']+$/gi, "");
+  if (!lower || isKnownSpelling(lower)) return [];
+  const dedoubled = /(.)\1$/i.test(lower) ? lower.slice(0, -1) : "";
+  const direct = unique([
+    AUTOCORRECT_MAP[lower],
+    dedoubled && isKnownSpelling(dedoubled) ? dedoubled : ""
+  ].filter(Boolean));
+  const candidates = new Set([...direct, ...nativeSuggestions, ...SPELL_WORD_SET]);
+  const scored = [...candidates]
+    .map((candidate) => String(candidate || "").toLowerCase())
+    .filter((candidate) => candidate && candidate !== lower && Math.abs(candidate.length - lower.length) <= 4)
+    .map((candidate) => ({
+      candidate,
+      distance: spellingDistance(lower, candidate),
+      starts: candidate[0] === lower[0] ? 0 : 1,
+      lengthGap: Math.abs(candidate.length - lower.length)
+    }))
+    .filter((item) => item.distance <= Math.max(2, Math.floor(lower.length / 3)))
+    .sort((a, b) => a.distance - b.distance || a.starts - b.starts || a.lengthGap - b.lengthGap || a.candidate.localeCompare(b.candidate))
+    .map((item) => item.candidate);
+  return unique([...direct, ...nativeSuggestions.map((item) => String(item || "").toLowerCase()), ...scored]).slice(0, 6);
+}
+
+function spellingDistance(source, target) {
+  const a = String(source || "");
+  const b = String(target || "");
+  const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i += 1) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        dp[i][j] = Math.min(dp[i][j], dp[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+async function openSpellcheckTool() {
+  const editor = currentRichEditor();
+  const issues = await collectSpellingIssues(editor);
+  dialogResolve = () => {};
+  els.dialogTitle.textContent = "Spelling And Autocorrect";
+  els.dialogMessage.textContent = issues.length
+    ? "Select a word, choose a suggestion, then replace it or add the word to your dictionary."
+    : "No likely misspellings found in the current workspace.";
+  els.dialogIcon.className = "icon95 HelpBook_32x32_4";
+  const dialog = els.modalOverlay.querySelector(".retro-dialog");
+  dialog.classList.add("has-fields", "spellcheck-dialog");
+  dialog.classList.remove("has-multiline", "has-data", "has-symbol", "page-setup-dialog");
+  els.dialogFields.innerHTML = `
+    <div class="spellcheck-tool">
+      <div class="spellcheck-issue-list" data-spell-issues></div>
+      <div class="spellcheck-suggestion-panel">
+        <strong data-spell-current>${issues[0]?.word || "Ready"}</strong>
+        <div class="spellcheck-suggestions" data-spell-suggestions></div>
+        <div class="button-row">
+          <button type="button" data-spell-tool-action="replace">Replace</button>
+          <button type="button" data-spell-tool-action="replaceAll">Replace All</button>
+          <button type="button" data-spell-tool-action="add">Add To Dictionary</button>
+        </div>
+      </div>
+      <fieldset>
+        <legend>Custom Dictionary</legend>
+        <div class="spellcheck-dictionary" data-spell-dictionary></div>
+      </fieldset>
+    </div>
+  `;
+  els.dialogButtons.innerHTML = "";
+  const close = document.createElement("button");
+  close.textContent = "Close";
+  close.addEventListener("click", () => closeRetroDialog(true));
+  els.dialogButtons.append(close);
+  let selectedWord = issues[0]?.word || "";
+  let selectedSuggestion = issues[0]?.suggestions[0] || "";
+
+  const render = () => {
+    const issueList = els.dialogFields.querySelector("[data-spell-issues]");
+    const current = els.dialogFields.querySelector("[data-spell-current]");
+    const suggestions = els.dialogFields.querySelector("[data-spell-suggestions]");
+    const dictionary = els.dialogFields.querySelector("[data-spell-dictionary]");
+    issueList.innerHTML = issues.length
+      ? issues.map((issue) => `<button type="button" data-spell-word="${escapeHtml(issue.word)}" class="${issue.word === selectedWord ? "active" : ""}">${escapeHtml(issue.word)}<small>${issue.count}</small></button>`).join("")
+      : "<p>No likely misspellings.</p>";
+    const issue = issues.find((item) => item.word === selectedWord) || issues[0];
+    if (issue && !selectedWord) selectedWord = issue.word;
+    if (issue && !selectedSuggestion) selectedSuggestion = issue.suggestions[0] || "";
+    current.textContent = issue ? issue.word : "Ready";
+    suggestions.innerHTML = issue?.suggestions.length
+      ? issue.suggestions.map((suggestion) => `<button type="button" data-spell-suggestion="${escapeHtml(suggestion)}" class="${suggestion === selectedSuggestion ? "active" : ""}">${escapeHtml(suggestion)}</button>`).join("")
+      : "<p>No suggestion. Edit manually or add the word if it is correct.</p>";
+    dictionary.innerHTML = state.customDictionary.length
+      ? state.customDictionary.map((word) => `<button type="button" data-remove-dictionary-word="${escapeHtml(word)}">${escapeHtml(word)} X</button>`).join("")
+      : "<p>No custom words yet.</p>";
+    issueList.querySelectorAll("[data-spell-word]").forEach((button) => {
+      button.addEventListener("click", () => {
+        selectedWord = button.dataset.spellWord;
+        selectedSuggestion = (issues.find((item) => item.word === selectedWord)?.suggestions || [])[0] || "";
+        render();
+      });
+    });
+    suggestions.querySelectorAll("[data-spell-suggestion]").forEach((button) => {
+      button.addEventListener("click", () => {
+        selectedSuggestion = button.dataset.spellSuggestion;
+        render();
+      });
+    });
+    dictionary.querySelectorAll("[data-remove-dictionary-word]").forEach((button) => {
+      button.addEventListener("click", () => {
+        removeCustomDictionaryWord(button.dataset.removeDictionaryWord);
+        render();
+      });
+    });
+  };
+
+  els.dialogFields.querySelector("[data-spell-tool-action='replace']").addEventListener("click", () => {
+    if (!selectedWord || !selectedSuggestion) return;
+    replaceWordInEditor(editor, selectedWord, selectedSuggestion, false);
+    closeRetroDialog(true);
+    openSpellcheckTool();
+  });
+  els.dialogFields.querySelector("[data-spell-tool-action='replaceAll']").addEventListener("click", () => {
+    if (!selectedWord || !selectedSuggestion) return;
+    replaceWordInEditor(editor, selectedWord, selectedSuggestion, true);
+    closeRetroDialog(true);
+    openSpellcheckTool();
+  });
+  els.dialogFields.querySelector("[data-spell-tool-action='add']").addEventListener("click", () => {
+    if (!selectedWord) return;
+    addCustomDictionaryWord(selectedWord);
+    closeRetroDialog(true);
+    openSpellcheckTool();
+  });
+
+  render();
+  els.modalOverlay.hidden = false;
+}
+
+async function collectSpellingIssues(editor) {
+  if (!editor) return [];
+  const counts = new Map();
+  textNodesForSpelling(editor).forEach((node) => {
+    for (const match of node.nodeValue.matchAll(/[A-Za-z']{2,}/g)) {
+      const word = match[0];
+      const lower = word.toLowerCase();
+      if (isKnownSpelling(lower)) continue;
+      const item = counts.get(lower) || { word, lower, count: 0, suggestions: [] };
+      item.count += 1;
+      counts.set(lower, item);
+    }
+  });
+  const items = [...counts.values()];
+  const checked = await window.retroNotebook?.spellcheck?.checkWords?.(items.map((item) => item.word));
+  const byWord = new Map((Array.isArray(checked) ? checked : []).map((result) => [String(result.word || "").toLowerCase(), result]));
+  return items
+    .map((item) => {
+      const result = byWord.get(item.lower);
+      const nativeSuggestions = Array.isArray(result?.suggestions) ? result.suggestions : [];
+      return {
+        ...item,
+        correct: result?.correct === true || isKnownSpelling(item.lower),
+        suggestions: unique([...nativeSuggestions, ...spellingSuggestionsFor(item.lower, nativeSuggestions)]).slice(0, 8)
+      };
+    })
+    .filter((item) => !item.correct && (item.suggestions.length || item.lower.length >= 6))
+    .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word))
+    .slice(0, 40);
+}
+
+function textNodesForSpelling(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || parent.closest("code, pre, a, .latex-chip, .citation-ref, .retro-widget, script, style")) return NodeFilter.FILTER_REJECT;
+      return node.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    }
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  return nodes;
+}
+
+function replaceWordInEditor(editor, word, replacement, replaceAll = false) {
+  const pattern = new RegExp(`\\b${escapeRegExp(word)}\\b`, "gi");
+  let replaced = 0;
+  textNodesForSpelling(editor).forEach((node) => {
+    if (replaced && !replaceAll) return;
+    node.nodeValue = node.nodeValue.replace(pattern, (match) => {
+      if (replaced && !replaceAll) return match;
+      replaced += 1;
+      return match[0] === match[0].toUpperCase() ? replacement[0].toUpperCase() + replacement.slice(1) : replacement;
+    });
+  });
+  if (replaced) {
+    syncRichEditor(editor);
+    setStatus(`${replaced} spelling replacement${replaced === 1 ? "" : "s"} made.`);
+  }
+  return replaced;
+}
+
+function addCustomDictionaryWord(word) {
+  const lower = String(word || "").toLowerCase().trim();
+  if (!lower) return;
+  state.customDictionary = unique([...(state.customDictionary || []), lower]).sort();
+  saveState();
+  window.retroNotebook?.spellcheck?.addToDictionary?.(lower);
+  setStatus(`"${lower}" added to custom dictionary.`);
+}
+
+function removeCustomDictionaryWord(word) {
+  const lower = String(word || "").toLowerCase().trim();
+  state.customDictionary = (state.customDictionary || []).filter((item) => item !== lower);
+  saveState();
+  setStatus(`"${lower}" removed from custom dictionary.`);
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function currentRichEditor() {
@@ -1307,6 +1627,9 @@ function normalizeState(nextState, options = {}) {
   nextState.glossaryTerms = Array.isArray(nextState.glossaryTerms)
     ? nextState.glossaryTerms.map(normalizeGlossaryTerm).filter((term) => term.term && term.definition)
     : defaultGlossaryTerms();
+  nextState.customDictionary = Array.isArray(nextState.customDictionary)
+    ? unique(nextState.customDictionary.map((word) => String(word || "").toLowerCase().trim()).filter(Boolean)).sort()
+    : [];
   nextState.citationStyle = CITATION_STYLES.includes(nextState.citationStyle) ? nextState.citationStyle : "apa";
   nextState.citationCustomFormat = nextState.citationCustomFormat || "{authors}. {title}. {journal}. {year}. {doi} {url}";
   nextState.citations = Array.isArray(nextState.citations)
@@ -1347,6 +1670,21 @@ function upgradeTutorialDemo(nextState) {
   }
   if (!tutorial.content.includes("target=\"_blank\"")) {
     tutorial.content += '<h2>Hyperlink</h2><p><a href="https://github.com/DanielAU11/RetroNotebook" target="_blank" rel="noopener noreferrer">Open the RetroNotebook repository</a>.</p>';
+  }
+  if (!tutorial.content.includes("Spelling And Autocorrect")) {
+    tutorial.content += "<h2>Spelling And Autocorrect</h2><p>Use the spelling toolbar button to scan the current page, replace one word or all matches, and manage the custom dictionary. Right-click underlined words for the same suggestions in the context menu.</p>";
+  }
+  if (!tutorial.content.includes("Symbols And Formatting")) {
+    tutorial.content += "<h2>Symbols And Formatting</h2><p>The omega button opens a searchable Word-style symbol picker. Text color, highlight color, line spacing, superscript, subscript, headers, footers, and page numbers live in the toolbar and page setup window.</p>";
+  }
+  if (!tutorial.content.includes("Tables, Images, And PDFs")) {
+    tutorial.content += "<h2>Tables, Images, And PDFs</h2><p>Insert tables with Fixed, AutoFit to contents, or AutoFit to page behavior. Right-click cells to add or delete rows and columns, drag borders to resize, paste images into rich editors, and add PDFs to binder folders for preview.</p>";
+  }
+  if (!tutorial.content.includes("Calendar And Study Tools")) {
+    tutorial.content += "<h2>Calendar And Study Tools</h2><p>The Calendar tab supports week and month views, reminders, time ranges, repeat rules, repeat days, and end dates. Flashcards can be reviewed by notebook and page with spaced-repetition grading.</p>";
+  }
+  if (!tutorial.content.includes("3D Graph Controls")) {
+    tutorial.content += "<h2>3D Graph Controls</h2><p>3D graphs can be dragged with the hand cursor, nudged with arrow buttons, zoomed with plus and minus, and recentered with Fit. The Edit button changes variables, colors, labels, axis titles, and data values.</p>";
   }
 }
 
@@ -1394,6 +1732,7 @@ function seedState() {
       { id: uid(), name: "features", color: "#cce8ff" },
       { id: uid(), name: "win98", color: "#d9f2d0" }
     ],
+    customDictionary: [],
     glossaryTerms: defaultGlossaryTerms(),
     citationStyle: "vancouver",
     citationCustomFormat: "{authors}. {title}. {journal}. {year}. {doi} {url}",
@@ -1447,7 +1786,7 @@ function seedState() {
         paperSize: "letter",
         pageSetup: { ...DEFAULT_PAGE_SETUP, header: "Retro Notebook Tutorial", footer: "Local-first study workspace", pageNumberPosition: "bottom-right" },
         content:
-          `<h1>Retro Notebook Tutorial</h1><p>This single notebook is the starter tour. Create colored notebooks from the binder, write rich pages, save equations, insert tables, build editable charts and graphs, capture templates, create flashcards, add hyperlinks, and type /summary or /card to try smartphrases.</p><h2>Equation</h2><p>Saved equations can be named in the LaTeX tab and inserted from the sigma toolbar dropdown: \\[\\frac{d}{dx}x^2 = 2x\\]</p><h2>Tags, Glossary, And Links</h2><p>Use the tag field to type tags separated by commas, insert glossary headings with Heading 3, and add a link like <a href="https://github.com/DanielAU11/RetroNotebook" target="_blank" rel="noopener noreferrer">RetroNotebook on GitHub</a>.</p><h2>Citation Manager</h2><p>Numeric citation styles insert linked superscripts. This demo source jumps to the matching bibliography entry below<span class="citation-ref numeric" contenteditable="false" data-citation-id="${tutorialCitationId}"><a href="#ref-${tutorialCitationId}">1</a></span>.</p><h2>Editable Table</h2><table><tbody><tr><th>Feature</th><th>Where</th></tr><tr><td>Page setup</td><td>Toolbar paper button</td></tr><tr><td>SmartPhrase</td><td>Type / in the page</td></tr></tbody></table><h2>Editable Chart</h2><div class="retro-widget chart-widget" contenteditable="false" data-chart="${encodeDataSet(tutorialChart)}"><div class="widget-title"><span class="widget-name">Retention Workflow</span></div><canvas class="chart-canvas"></canvas></div><h2>Editable 3D Graph</h2><p>Drag the canvas or use the arrow buttons in the graph title to rotate it.</p><div class="retro-widget graph-widget" contenteditable="false" data-graph="${encodeDataSet(tutorialGraph)}"><div class="widget-title"><span class="widget-name">3D Learning Model</span></div><canvas class="graph-canvas"></canvas></div><h2>Study Loop</h2><ul><li>Select text and create flashcards.</li><li>Review cards with Again, Hard, Good, and Easy.</li><li>Save reusable page layouts in Templates.</li><li>Use Print Preview to see automatic page flow, headers, footers, and page numbers.</li></ul><section class="citation-bibliography"><h1>Citations</h1><ol><li id="ref-${tutorialCitationId}">Roediger HL; Karpicke JD. Retrieval Practice Produces Memory Benefits. Psychological Science. 2006. doi:10.1111/j.1467-9280.2006.01693.x</li></ol></section>`,
+          `<h1>Retro Notebook Tutorial</h1><p>This single notebook is the starter tour. Create colored notebooks from the binder, write rich pages, save equations, insert tables, build editable charts and graphs, capture templates, create flashcards, add hyperlinks, and type /summary or /card to try smartphrases.</p><h2>Equation</h2><p>Saved equations can be named in the LaTeX tab and inserted from the sigma toolbar dropdown: \\[\\frac{d}{dx}x^2 = 2x\\]</p><h2>Tags, Glossary, And Links</h2><p>Use the tag field to type tags separated by commas, insert glossary headings with Heading 3, and add a link like <a href="https://github.com/DanielAU11/RetroNotebook" target="_blank" rel="noopener noreferrer">RetroNotebook on GitHub</a>.</p><h2>Symbols And Formatting</h2><p>The omega button opens a searchable symbol picker. The toolbar also supports custom text color, highlight color, line spacing, superscript, subscript, headers, footers, and page numbers.</p><h2>Spelling And Autocorrect</h2><p>Use the spelling toolbar button to scan the current page, replace one word or all matches, and manage the custom dictionary. Right-click underlined words for suggestions.</p><h2>Citation Manager</h2><p>Numeric citation styles insert linked superscripts. This demo source jumps to the matching bibliography entry below<span class="citation-ref numeric" contenteditable="false" data-citation-id="${tutorialCitationId}"><a href="#ref-${tutorialCitationId}">1</a></span>.</p><h2>Editable Table</h2><table><tbody><tr><th>Feature</th><th>Where</th></tr><tr><td>AutoFit table behavior</td><td>Insert Table dialog</td></tr><tr><td>SmartPhrase</td><td>Type / in the page</td></tr></tbody></table><p>Right-click cells to add or delete rows and columns, drag borders to resize, and choose table header color during creation.</p><h2>Editable Chart</h2><div class="retro-widget chart-widget" contenteditable="false" data-chart="${encodeDataSet(tutorialChart)}"><div class="widget-title"><span class="widget-name">Retention Workflow</span></div><canvas class="chart-canvas"></canvas></div><h2>Editable 3D Graph</h2><p>Drag the canvas, use arrow buttons to rotate, plus and minus to zoom, and Fit to recenter. Edit changes variables, colors, labels, axis titles, and data values.</p><div class="retro-widget graph-widget" contenteditable="false" data-graph="${encodeDataSet(tutorialGraph)}"><div class="widget-title"><span class="widget-name">3D Learning Model</span></div><canvas class="graph-canvas"></canvas></div><h2>Tables, Images, And PDFs</h2><p>Paste images into rich editors, resize inserted images, and add PDFs to binder folders for preview.</p><h2>Calendar And Study Tools</h2><p>The Calendar tab supports week and month views, reminders, time ranges, repeat rules, repeat days, and end dates. Flashcards can be reviewed by notebook and page with spaced-repetition grading.</p><h2>Study Loop</h2><ul><li>Select text and create flashcards.</li><li>Review cards with Again, Hard, Good, and Easy.</li><li>Save reusable page layouts in Templates.</li><li>Use Print Preview to see automatic page flow, headers, footers, and page numbers.</li></ul><section class="citation-bibliography"><h1>Citations</h1><ol><li id="ref-${tutorialCitationId}">Roediger HL; Karpicke JD. Retrieval Practice Produces Memory Benefits. Psychological Science. 2006. doi:10.1111/j.1467-9280.2006.01693.x</li></ol></section>`,
         plain: "Retro Notebook Tutorial. Create colored notebooks, rich pages, equations, charts, 3D graphs, templates, citations, hyperlinks, flashcards, and smartphrases.",
         cards: [
           makeCard(
@@ -3240,7 +3579,7 @@ function openInsertTableDialog(target) {
     els.dialogMessage.textContent = "";
     els.dialogIcon.className = "icon95 FileText_32x32_4";
     const dialog = els.modalOverlay.querySelector(".retro-dialog");
-    dialog.classList.add("has-fields");
+    dialog.classList.add("has-fields", "table-dialog");
     dialog.classList.remove("has-multiline", "has-data", "has-symbol", "page-setup-dialog");
     els.dialogFields.innerHTML = `
       <div class="insert-table-dialog">
@@ -3253,9 +3592,19 @@ function openInsertTableDialog(target) {
         </fieldset>
         <fieldset>
           <legend>AutoFit behavior</legend>
-          <label class="table-fit-option fixed"><input type="radio" name="table-fit" value="fixed" ${defaults.autoFit === "fixed" ? "checked" : ""} /> <span>Fixed column width</span><input data-table-fixed value="${escapeHtml(defaults.fixedWidth || "Auto")}" /></label>
-          <label class="table-fit-option"><input type="radio" name="table-fit" value="content" ${defaults.autoFit === "content" ? "checked" : ""} /> <span>AutoFit to contents</span></label>
-          <label class="table-fit-option"><input type="radio" name="table-fit" value="window" ${defaults.autoFit === "window" ? "checked" : ""} /> <span>AutoFit to window</span></label>
+          <label class="table-fit-option fixed">
+            <input type="radio" name="table-fit" value="fixed" ${defaults.autoFit === "fixed" ? "checked" : ""} />
+            <span class="table-fit-copy"><strong>Fixed column width</strong><small>Use the width box for each column.</small></span>
+            <input data-table-fixed aria-label="Fixed column width" value="${escapeHtml(defaults.fixedWidth || "Auto")}" />
+          </label>
+          <label class="table-fit-option">
+            <input type="radio" name="table-fit" value="content" ${defaults.autoFit === "content" ? "checked" : ""} />
+            <span class="table-fit-copy"><strong>AutoFit to contents</strong><small>Table grows to text, up to page width.</small></span>
+          </label>
+          <label class="table-fit-option">
+            <input type="radio" name="table-fit" value="window" ${defaults.autoFit === "window" ? "checked" : ""} />
+            <span class="table-fit-copy"><strong>AutoFit to page</strong><small>Columns fill the writing area.</small></span>
+          </label>
         </fieldset>
         <fieldset>
           <legend>Design</legend>
@@ -5225,13 +5574,14 @@ function showContextMenu(event) {
     renderSpellcheckMenuItems();
     positionContextMenu(event.clientX, event.clientY);
   }, 320);
+  refreshContextSpellcheckSuggestions(event);
 }
 
 function primeSpellcheckContextFromPoint(event) {
   const info = wordInfoAtPoint(event.clientX, event.clientY);
   if (!info?.word) return;
   const lower = info.word.toLowerCase();
-  const fallbackSuggestions = AUTOCORRECT_MAP[lower] ? [AUTOCORRECT_MAP[lower]] : [];
+  const fallbackSuggestions = spellingSuggestionsFor(lower);
   spellcheckContext = {
     word: info.word,
     suggestions: fallbackSuggestions,
@@ -5240,6 +5590,21 @@ function primeSpellcheckContextFromPoint(event) {
     at: Date.now(),
     range: info.range
   };
+}
+
+async function refreshContextSpellcheckSuggestions(event) {
+  const word = spellcheckContext.word;
+  if (!word) return;
+  const stamp = spellcheckContext.at;
+  const result = await window.retroNotebook?.spellcheck?.suggest?.(word);
+  if (!result?.word || spellcheckContext.word !== word || spellcheckContext.at !== stamp || els.contextMenu.hidden) return;
+  const nativeSuggestions = Array.isArray(result.suggestions) ? result.suggestions : [];
+  spellcheckContext.suggestions = unique([...nativeSuggestions, ...spellingSuggestionsFor(word, nativeSuggestions)]).slice(0, 8);
+  if (result.correct && !nativeSuggestions.length && !spellingSuggestionsFor(word).length) {
+    spellcheckContext.word = "";
+  }
+  renderSpellcheckMenuItems();
+  positionContextMenu(event.clientX, event.clientY);
 }
 
 function wordInfoAtPoint(x, y) {
@@ -5296,14 +5661,16 @@ function renderSpellcheckMenuItems(event = null) {
     els.spellcheckMenuItems.innerHTML = "";
     return;
   }
-  const suggestions = spellcheckContext.suggestions.length
-    ? spellcheckContext.suggestions.map((suggestion) => `<button type="button" data-spell-replace="${escapeHtml(suggestion)}">${escapeHtml(suggestion)}</button>`).join("")
+  const mergedSuggestions = spellingSuggestionsFor(word, spellcheckContext.suggestions);
+  const suggestions = mergedSuggestions.length
+    ? mergedSuggestions.map((suggestion) => `<button type="button" data-spell-replace="${escapeHtml(suggestion)}">${escapeHtml(suggestion)}</button>`).join("")
     : "<button type=\"button\" disabled>No spelling suggestions</button>";
   els.spellcheckMenuItems.hidden = false;
   els.spellcheckMenuItems.innerHTML = `
     <button type="button" disabled>Spelling: ${escapeHtml(word)}</button>
     ${suggestions}
     <button type="button" data-context-action="spellAdd">Add "${escapeHtml(word)}" to dictionary</button>
+    <button type="button" data-context-action="spellManage">Open spelling tool...</button>
     <hr />
   `;
   els.spellcheckMenuItems.querySelectorAll("[data-spell-replace]").forEach((button) => {
@@ -5315,6 +5682,10 @@ function renderSpellcheckMenuItems(event = null) {
   els.spellcheckMenuItems.querySelector("[data-context-action='spellAdd']")?.addEventListener("click", async () => {
     await addWordToDictionary(word);
     hideContextMenu();
+  });
+  els.spellcheckMenuItems.querySelector("[data-context-action='spellManage']")?.addEventListener("click", () => {
+    hideContextMenu();
+    openSpellcheckTool();
   });
 }
 
@@ -5412,10 +5783,8 @@ async function runContextAction(action) {
 }
 
 async function replaceMisspelling(suggestion) {
-  let ok = await window.retroNotebook?.spellcheck?.replace?.(suggestion);
-  if (!ok && spellcheckContext.range) {
-    ok = replaceSpellcheckRange(suggestion);
-  }
+  let ok = spellcheckContext.range ? replaceSpellcheckRange(suggestion) : false;
+  if (!ok) ok = await window.retroNotebook?.spellcheck?.replace?.(suggestion);
   setStatus(ok ? `Replaced with "${suggestion}".` : "Could not replace misspelling.");
 }
 
@@ -5423,9 +5792,16 @@ function replaceSpellcheckRange(suggestion) {
   const range = spellcheckContext.range;
   if (!range) return false;
   try {
-    range.deleteContents();
-    range.insertNode(document.createTextNode(String(suggestion || "")));
     const owner = objectOwner(range.commonAncestorContainer?.parentElement || contextTarget);
+    range.deleteContents();
+    const text = document.createTextNode(String(suggestion || ""));
+    range.insertNode(text);
+    const selection = window.getSelection();
+    const after = document.createRange();
+    after.setStartAfter(text);
+    after.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(after);
     if (owner) {
       rememberSelectionForTarget(owner);
       syncRichEditor(owner);
@@ -5437,8 +5813,8 @@ function replaceSpellcheckRange(suggestion) {
 }
 
 async function addWordToDictionary(word) {
-  const ok = await window.retroNotebook?.spellcheck?.addToDictionary?.(word);
-  setStatus(ok ? `"${word}" added to dictionary.` : "Could not add word to dictionary.");
+  addCustomDictionaryWord(word);
+  await window.retroNotebook?.spellcheck?.addToDictionary?.(word);
 }
 
 function editableTarget(target) {
@@ -5639,7 +6015,9 @@ function graphRotateActions() {
       <button type="button" data-graph-rotate="right" title="Rotate right">►</button>
       <button type="button" data-graph-rotate="up" title="Tilt up">▲</button>
       <button type="button" data-graph-rotate="down" title="Tilt down">▼</button>
-      <button type="button" data-graph-rotate="reset" title="Reset view">0</button>
+      <button type="button" data-graph-rotate="zoomOut" title="Zoom out">-</button>
+      <button type="button" data-graph-rotate="zoomIn" title="Zoom in">+</button>
+      <button type="button" data-graph-rotate="reset" title="Fit view">Fit</button>
     </span>
   `;
 }
@@ -5678,10 +6056,11 @@ function handleGraphRotate(event) {
   const step = 0.22;
   const action = button.dataset.graphRotate;
   const next = action === "reset"
-    ? { yaw: 0.75, pitch: -0.25 }
+    ? { yaw: 0.75, pitch: -0.25, zoom: 0.58 }
     : {
         yaw: current.yaw + (action === "left" ? -step : action === "right" ? step : 0),
-        pitch: clamp(current.pitch + (action === "up" ? -step : action === "down" ? step : 0), -0.85, 0.85)
+        pitch: clamp(current.pitch + (action === "up" ? -step : action === "down" ? step : 0), -0.85, 0.85),
+        zoom: clamp(current.zoom * (action === "zoomOut" ? 0.82 : action === "zoomIn" ? 1.18 : 1), 0.3, 1.35)
       };
   widget.dataset.rotation = JSON.stringify(next);
   renderGraphWidget(widget, false);
@@ -6015,7 +6394,7 @@ function ensureGraphInteraction(widget, canvas) {
     if (!start) return;
     const yaw = start.rotation.yaw + (clientX - start.x) * 0.012;
     const pitch = clamp(start.rotation.pitch + (clientY - start.y) * 0.008, -0.85, 0.85);
-    widget.dataset.rotation = JSON.stringify({ yaw, pitch });
+    widget.dataset.rotation = JSON.stringify({ yaw, pitch, zoom: start.rotation.zoom });
     renderGraphWidget(widget, false);
   };
   const beginDrag = (event, id) => {
@@ -6110,9 +6489,9 @@ function ensureGraphInteraction(widget, canvas) {
 
 function graphRotation(widget) {
   try {
-    return { yaw: 0.75, pitch: -0.25, ...JSON.parse(widget.dataset.rotation || "{}") };
+    return { yaw: 0.75, pitch: -0.25, zoom: 0.58, ...JSON.parse(widget.dataset.rotation || "{}") };
   } catch {
-    return { yaw: 0.75, pitch: -0.25 };
+    return { yaw: 0.75, pitch: -0.25, zoom: 0.58 };
   }
 }
 
@@ -6722,12 +7101,12 @@ function draw3DGraph(ctx, data, w, h, rotation) {
     }),
     { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
   );
-  const margin = { left: 54, right: 86, top: 30, bottom: 44 };
+  const margin = { left: 64, right: 118, top: 42, bottom: 56 };
   const rawW = Math.max(0.1, rawBounds.maxX - rawBounds.minX);
   const rawH = Math.max(0.1, rawBounds.maxY - rawBounds.minY);
-  const fitScale = Math.min((w - margin.left - margin.right) / rawW, (h - margin.top - margin.bottom) / rawH) * 0.82;
-  const scale = Math.max(48, Math.min(220, fitScale));
-  const origin = {
+  const fitScale = Math.min((w - margin.left - margin.right) / rawW, (h - margin.top - margin.bottom) / rawH) * 0.72;
+  const scale = Math.max(24, Math.min(220, fitScale * clamp(rotation.zoom || 0.58, 0.3, 1.35)));
+  let origin = {
     x: margin.left + (w - margin.left - margin.right - rawW * scale) / 2 - rawBounds.minX * scale,
     y: margin.top + (h - margin.top - margin.bottom - rawH * scale) / 2 - rawBounds.minY * scale
   };
@@ -6735,9 +7114,44 @@ function draw3DGraph(ctx, data, w, h, rotation) {
     const raw = rawProject(x, y, z);
     return { x: origin.x + raw.x * scale, y: origin.y + raw.y * scale, depth: raw.depth };
   };
-  const xAxis = project(1, 0, 0);
-  const yAxis = project(0, 1, 0);
-  const zAxis = project(0, 0, 1);
+  let xAxis = project(1, 0, 0);
+  let yAxis = project(0, 1, 0);
+  let zAxis = project(0, 0, 1);
+  let projectedPoints = normalizedPoints
+    .map((point) => {
+      const projected = project(point.nx, point.ny, point.nz);
+      return {
+        ...point,
+        sx: projected.x,
+        sy: projected.y,
+        depth: projected.depth
+      };
+    })
+    .sort((a, b) => a.depth - b.depth);
+  const screenPoints = [origin, xAxis, yAxis, zAxis, ...projectedPoints.map((point) => ({ x: point.sx, y: point.sy }))];
+  const screenBounds = screenPoints.reduce(
+    (bounds, point) => ({
+      minX: Math.min(bounds.minX, point.x),
+      maxX: Math.max(bounds.maxX, point.x),
+      minY: Math.min(bounds.minY, point.y),
+      maxY: Math.max(bounds.maxY, point.y)
+    }),
+    { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
+  );
+  const targetCenter = {
+    x: margin.left + (w - margin.left - margin.right) / 2,
+    y: margin.top + (h - margin.top - margin.bottom) / 2
+  };
+  const offset = {
+    x: targetCenter.x - (screenBounds.minX + screenBounds.maxX) / 2,
+    y: targetCenter.y - (screenBounds.minY + screenBounds.maxY) / 2
+  };
+  const movePoint = (point) => ({ ...point, x: point.x + offset.x, y: point.y + offset.y });
+  origin = movePoint(origin);
+  xAxis = movePoint(xAxis);
+  yAxis = movePoint(yAxis);
+  zAxis = movePoint(zAxis);
+  projectedPoints = projectedPoints.map((point) => ({ ...point, sx: point.sx + offset.x, sy: point.sy + offset.y }));
   ctx.strokeStyle = "#808080";
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -6764,17 +7178,6 @@ function draw3DGraph(ctx, data, w, h, rotation) {
       drawClampedText(ctx, niceTickValue(value), axis.x - 8, axis.y - 4, 2, w - 2);
     });
   }
-  const projectedPoints = normalizedPoints
-    .map((point) => {
-      const projected = project(point.nx, point.ny, point.nz);
-      return {
-        ...point,
-        sx: projected.x,
-        sy: projected.y,
-        depth: projected.depth
-      };
-    })
-    .sort((a, b) => a.depth - b.depth);
   if (data.type === "threeDLine") {
     ctx.strokeStyle = seriesColor;
     ctx.lineWidth = 2;
@@ -7119,7 +7522,7 @@ function openRetroDialog({ title, message, icon, fields = [], buttons }) {
 function closeRetroDialog(value) {
   if (!dialogResolve) return;
   els.modalOverlay.hidden = true;
-  els.modalOverlay.querySelector(".retro-dialog")?.classList.remove("page-setup-dialog", "has-symbol");
+  els.modalOverlay.querySelector(".retro-dialog")?.classList.remove("page-setup-dialog", "has-symbol", "spellcheck-dialog", "table-dialog");
   const resolve = dialogResolve;
   dialogResolve = null;
   resolve(value);
@@ -7644,6 +8047,7 @@ function endTimeFromDuration(time, duration) {
 window.addEventListener("resize", () => {
   setToolWidth(toolWidth());
   renderWidgets();
+  setTimeout(renderWidgets, 120);
   scheduleAutoPagination();
 });
 
