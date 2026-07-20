@@ -176,6 +176,7 @@
           </div>
           <menu class="side-tabs" role="tablist" aria-label="Workspace tools">
             <li role="tab" class="side-tab active" data-main-tab="dashboard"><a href="#"><span class="icon95 Globe_16x16_4"></span>Overview</a></li>
+            <li role="tab" class="side-tab" data-main-tab="calendar"><a href="#"><span class="icon95 Date_16x16_4"></span>Calendar</a></li>
             <li role="tab" class="side-tab" data-main-tab="latex"><a href="#"><span class="icon95 Calculator_16x16_4"></span>LaTeX</a></li>
             <li role="tab" class="side-tab" data-main-tab="insert"><a href="#"><span class="icon95 Notepad_16x16_4"></span>Templates</a></li>
             <li role="tab" class="side-tab" data-main-tab="phrases"><a href="#"><span class="icon95 Write1_16x16_4"></span>Phrases</a></li>
@@ -222,6 +223,89 @@
                   <div id="recentPagesList" class="dashboard-list"></div>
                 </fieldset>
               </div>
+            </div>
+          </section>
+
+          <section class="main-panel" id="calendarPanel">
+            <div class="window-body calendar-body">
+              <fieldset class="calendar-controls">
+                <legend>Calendar</legend>
+                <div class="calendar-command-row">
+                  <button id="calendarPrevBtn">Previous</button>
+                  <strong id="calendarRangeLabel">This week</strong>
+                  <button id="calendarNextBtn">Next</button>
+                  <button id="calendarTodayBtn">Today</button>
+                </div>
+                <div class="calendar-command-row">
+                  <button id="calendarWeekBtn" class="active-tool">Week</button>
+                  <button id="calendarMonthBtn">Month</button>
+                  <button id="newCalendarEventBtn">New Event</button>
+                </div>
+              </fieldset>
+              <div id="calendarGrid" class="calendar-grid"></div>
+              <fieldset>
+                <legend>Event Editor</legend>
+                <div class="calendar-form-grid">
+                  <label for="calendarTitleInput">Title</label>
+                  <input id="calendarTitleInput" placeholder="Essay due, study block, office hours..." />
+                  <label for="calendarDateInput">Date</label>
+                  <input id="calendarDateInput" type="date" />
+                  <label for="calendarTimeInput">Starts</label>
+                  <input id="calendarTimeInput" type="time" />
+                  <label for="calendarEndTimeInput">Ends</label>
+                  <input id="calendarEndTimeInput" type="time" />
+                  <label for="calendarTypeSelect">Type</label>
+                  <select id="calendarTypeSelect">
+                    <option value="reminder">Reminder</option>
+                    <option value="event">Event</option>
+                    <option value="study">Study</option>
+                    <option value="deadline">Deadline</option>
+                    <option value="exam">Exam</option>
+                  </select>
+                  <label for="calendarRepeatSelect">Repeats</label>
+                  <select id="calendarRepeatSelect">
+                    <option value="none">Does not repeat</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekdays">Weekdays</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                  <label>Repeat days</label>
+                  <div class="calendar-repeat-menu-wrap">
+                    <button id="calendarRepeatDaysBtn" type="button">Repeat Days...</button>
+                    <small id="calendarRepeatDaysSummary">Uses event date</small>
+                    <div id="calendarRepeatDaysMenu" class="calendar-repeat-days-menu" hidden>
+                      <label><input type="checkbox" data-repeat-day="0" /> Sunday</label>
+                      <label><input type="checkbox" data-repeat-day="1" /> Monday</label>
+                      <label><input type="checkbox" data-repeat-day="2" /> Tuesday</label>
+                      <label><input type="checkbox" data-repeat-day="3" /> Wednesday</label>
+                      <label><input type="checkbox" data-repeat-day="4" /> Thursday</label>
+                      <label><input type="checkbox" data-repeat-day="5" /> Friday</label>
+                      <label><input type="checkbox" data-repeat-day="6" /> Saturday</label>
+                      <div class="calendar-repeat-menu-actions">
+                        <button type="button" data-repeat-days-clear>Clear</button>
+                        <button type="button" data-repeat-days-apply>Apply</button>
+                      </div>
+                    </div>
+                  </div>
+                  <label for="calendarRepeatUntilInput">Repeat until</label>
+                  <input id="calendarRepeatUntilInput" type="date" />
+                  <label for="calendarColorInput">Color</label>
+                  <input id="calendarColorInput" type="color" value="#2566a8" />
+                </div>
+                <label for="calendarNotesInput">Notes</label>
+                <textarea id="calendarNotesInput" rows="3" placeholder="Details, link, location, or task list..."></textarea>
+                <div class="button-row right calendar-editor-buttons">
+                  <button id="saveCalendarEventBtn">Save</button>
+                  <button id="deleteCalendarEventBtn">Delete</button>
+                  <button id="calendarDoneBtn">Mark Done</button>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>Upcoming</legend>
+                <div id="calendarUpcomingList" class="calendar-upcoming-list"></div>
+              </fieldset>
             </div>
           </section>
 
@@ -343,6 +427,7 @@
                       <button data-template-tool="table" title="Table"><span class="pixel-icon icon-table-tool"></span></button>
                       <button data-template-tool="chart" title="Chart"><span class="pixel-icon icon-chart-tool"></span></button>
                       <button data-template-tool="graph" title="Graph"><span class="pixel-icon icon-graph-tool"></span></button>
+                      <button data-template-tool="image" title="Image"><span class="pixel-icon icon-image-tool"></span></button>
                       <button data-template-tool="divider" title="Divider"><span class="pixel-icon icon-divider-tool"></span></button>
                     </div>
                     <div id="templateEditor" class="template-editor" contenteditable="true"></div>
@@ -501,6 +586,15 @@
 
           <section class="main-panel" id="reviewPanel">
             <div class="window-body review-body">
+              <fieldset class="review-filter-panel">
+                <legend>Review Scope</legend>
+                <div class="review-filter-grid">
+                  <label for="reviewNotebookSelect">Notebook</label>
+                  <select id="reviewNotebookSelect"></select>
+                  <label for="reviewPageSelect">Page</label>
+                  <select id="reviewPageSelect"></select>
+                </div>
+              </fieldset>
               <div class="review-card" id="reviewCard">
                 <div class="review-empty">No cards due. Create notes, then turn them into cards.</div>
               </div>

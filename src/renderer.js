@@ -80,11 +80,18 @@ let editingCardId = null;
 let selectedCitationId = null;
 let phraseRange = null;
 let activeRichEditor = null;
+let pendingImageTarget = null;
 let recognition = null;
 let isDictating = false;
 const pdfObjectUrls = new Map();
-let paginationFrame = null;
+const savedSelections = new WeakMap();
+let paginationTimer = null;
 let paginatingEditor = false;
+let calendarView = "week";
+let calendarCursor = "";
+let selectedCalendarEventId = null;
+let reviewNotebookFilter = "";
+let reviewPageFilter = "";
 
 document.addEventListener("DOMContentLoaded", () => {
   bindElements();
@@ -153,6 +160,30 @@ function bindElements() {
     "dashNotebookCount",
     "notebookDashboard",
     "recentPagesList",
+    "calendarPrevBtn",
+    "calendarNextBtn",
+    "calendarTodayBtn",
+    "calendarWeekBtn",
+    "calendarMonthBtn",
+    "newCalendarEventBtn",
+    "calendarRangeLabel",
+    "calendarGrid",
+    "calendarTitleInput",
+    "calendarDateInput",
+    "calendarTimeInput",
+    "calendarEndTimeInput",
+    "calendarTypeSelect",
+    "calendarRepeatSelect",
+    "calendarRepeatDaysBtn",
+    "calendarRepeatDaysSummary",
+    "calendarRepeatDaysMenu",
+    "calendarRepeatUntilInput",
+    "calendarColorInput",
+    "calendarNotesInput",
+    "saveCalendarEventBtn",
+    "deleteCalendarEventBtn",
+    "calendarDoneBtn",
+    "calendarUpcomingList",
     "wordCount",
     "charCount",
     "cardCount",
@@ -221,6 +252,8 @@ function bindElements() {
     "addCardBtn",
     "pageCards",
     "dueCardList",
+    "reviewNotebookSelect",
+    "reviewPageSelect",
     "reviewCard",
     "statusText",
     "countText",
@@ -294,6 +327,48 @@ function bindEvents() {
   els.lineSpacingSelect.addEventListener("change", applyLineSpacing);
   els.dictationBtn.addEventListener("click", toggleDictation);
   els.speakTextBtn.addEventListener("click", speakSelection);
+  els.calendarPrevBtn.addEventListener("click", () => moveCalendar(-1));
+  els.calendarNextBtn.addEventListener("click", () => moveCalendar(1));
+  els.calendarTodayBtn.addEventListener("click", () => {
+    calendarCursor = dateKey(new Date());
+    renderCalendar();
+  });
+  els.calendarWeekBtn.addEventListener("click", () => setCalendarView("week"));
+  els.calendarMonthBtn.addEventListener("click", () => setCalendarView("month"));
+  els.newCalendarEventBtn.addEventListener("click", newCalendarEventDraft);
+  els.saveCalendarEventBtn.addEventListener("click", saveCalendarEvent);
+  els.deleteCalendarEventBtn.addEventListener("click", deleteCalendarEvent);
+  els.calendarDoneBtn.addEventListener("click", toggleCalendarEventDone);
+  els.calendarRepeatSelect.addEventListener("change", updateCalendarRepeatControls);
+  els.calendarRepeatDaysBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    els.calendarRepeatDaysMenu.hidden = !els.calendarRepeatDaysMenu.hidden;
+  });
+  els.calendarRepeatDaysMenu.querySelector("[data-repeat-days-apply]").addEventListener("click", () => {
+    els.calendarRepeatDaysMenu.hidden = true;
+    updateCalendarRepeatSummary();
+  });
+  els.calendarRepeatDaysMenu.querySelector("[data-repeat-days-clear]").addEventListener("click", () => {
+    setCalendarRepeatDays([]);
+    updateCalendarRepeatSummary();
+  });
+  els.calendarRepeatDaysMenu.querySelectorAll("[data-repeat-day]").forEach((input) => {
+    input.addEventListener("change", updateCalendarRepeatSummary);
+  });
+  els.reviewNotebookSelect.addEventListener("change", () => {
+    reviewNotebookFilter = els.reviewNotebookSelect.value;
+    reviewPageFilter = "";
+    answerVisible = false;
+    reviewIndex = 0;
+    renderReviewFilters();
+    renderReview();
+  });
+  els.reviewPageSelect.addEventListener("change", () => {
+    reviewPageFilter = els.reviewPageSelect.value;
+    answerVisible = false;
+    reviewIndex = 0;
+    renderReview();
+  });
 
   els.pageTitleInput.addEventListener("input", () => {
     const page = activePage();
@@ -334,10 +409,12 @@ function bindEvents() {
     if (document.querySelector("#citationsPanel.active")) renderCitationManager();
     updatePhraseMenu();
   });
+  els.editor.addEventListener("beforeinput", removeAutoPageBreaks);
   els.editor.addEventListener("keyup", updatePhraseMenu);
   els.editor.addEventListener("keydown", handleEditorKeydown);
 
   els.editor.addEventListener("click", (event) => {
+    if (handleImageResize(event)) return;
     handleObjectSelectionClick(event);
     if (event.target.matches(".draw-pad")) event.preventDefault();
     if (event.target.closest("[data-widget-action]")) handleWidgetAction(event);
@@ -347,9 +424,9 @@ function bindEvents() {
   els.findIconBtn.addEventListener("click", focusSearch);
   els.equationIconBtn.addEventListener("click", insertSelectedEquation);
   els.equationSelect.addEventListener("change", loadSelectedEquation);
-  els.tableIconBtn.addEventListener("click", insertTable);
-  els.chartIconBtn.addEventListener("click", insertChart);
-  els.graphIconBtn.addEventListener("click", insertGraph);
+  els.tableIconBtn.addEventListener("click", () => insertTable());
+  els.chartIconBtn.addEventListener("click", () => insertChart());
+  els.graphIconBtn.addEventListener("click", () => insertGraph());
   els.drawIconBtn.addEventListener("click", insertDrawing);
   els.linkIconBtn.addEventListener("click", insertHyperlink);
   els.dividerIconBtn.addEventListener("click", insertDivider);
@@ -364,6 +441,7 @@ function bindEvents() {
   els.saveTemplateBtn.addEventListener("click", saveCustomTemplate);
   els.templateEditor.addEventListener("focus", hidePhraseMenu);
   els.templateEditor.addEventListener("click", (event) => {
+    if (handleImageResize(event)) return;
     handleObjectSelectionClick(event);
     if (event.target.closest("[data-widget-action]")) handleWidgetAction(event);
   });
@@ -438,11 +516,13 @@ function bindEvents() {
     button.addEventListener("click", () => runBinderContextAction(button.dataset.binderAction));
   });
   document.addEventListener("contextmenu", showContextMenu);
+  document.addEventListener("selectionchange", rememberActiveSelection);
   document.addEventListener("click", (event) => {
     if (!els.appMenu.hidden && !els.appMenu.contains(event.target) && !event.target.closest("[data-menu-name]")) hideAppMenu();
     if (!els.contextMenu.contains(event.target)) hideContextMenu();
     if (!els.binderContextMenu.contains(event.target)) hideBinderContextMenu();
     if (!els.colorMenu.contains(event.target) && !event.target.closest("#textColorBtn, #highlightColorBtn")) hideColorMenu();
+    if (!els.calendarRepeatDaysMenu.contains(event.target) && !event.target.closest("#calendarRepeatDaysBtn")) els.calendarRepeatDaysMenu.hidden = true;
     if (!els.phraseMenu.contains(event.target) && !els.editor.contains(event.target)) hidePhraseMenu();
     if (!event.target.closest?.(".selectable-object, .context-menu, [data-widget-action]")) clearSelectedObject();
   });
@@ -456,6 +536,18 @@ function bindEvents() {
       event.preventDefault();
       openPrintPreview();
       return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c" && selectedObject?.classList?.contains("image-figure")) {
+      event.preventDefault();
+      copyImageToClipboard(selectedObject.querySelector("img")?.src || "");
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v" && currentRichEditor()?.isContentEditable) {
+      const pasted = pasteImageFromClipboard(currentRichEditor(), { silentIfEmpty: true });
+      if (pasted) {
+        event.preventDefault();
+        return;
+      }
     }
     if ((event.key === "Backspace" || event.key === "Delete") && selectedObject) {
       event.preventDefault();
@@ -483,15 +575,19 @@ function bindRichEditors() {
     if (!editor) return;
     editor.addEventListener("focus", () => {
       activeRichEditor = editor;
+      rememberSelectionForTarget(editor);
     });
+    editor.addEventListener("keyup", () => rememberSelectionForTarget(editor));
     editor.addEventListener("input", () => {
       if (editor === els.editor) return;
       renderWidgets();
       typesetMath();
     });
     editor.addEventListener("click", (event) => {
+      if (handleImageResize(event)) return;
       handleObjectSelectionClick(event);
       if (event.target.closest("[data-graph-rotate]")) handleGraphRotate(event);
+      rememberSelectionForTarget(editor);
     });
   });
   activeRichEditor = els.editor;
@@ -519,6 +615,61 @@ function withRichEditor(editor, action) {
     activeRichEditor = previous || activeRichEditor;
     throw error;
   }
+}
+
+function richEditorContaining(node) {
+  const element = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+  return element?.closest?.("#editor, #templateEditor, #phraseExpansionEditor, #cardFront, #cardBack") || null;
+}
+
+function rememberActiveSelection() {
+  const selection = window.getSelection();
+  if (!selection.rangeCount) return;
+  const editor = richEditorContaining(selection.anchorNode);
+  if (editor) {
+    activeRichEditor = editor;
+    rememberSelectionForTarget(editor);
+  }
+}
+
+function rememberSelectionForTarget(target) {
+  const selection = window.getSelection();
+  if (!target || !selection.rangeCount || !target.contains(selection.anchorNode)) return null;
+  const range = selection.getRangeAt(0).cloneRange();
+  savedSelections.set(target, range);
+  return range;
+}
+
+function captureSelectionForTarget(target) {
+  const selection = window.getSelection();
+  if (target && selection.rangeCount && target.contains(selection.anchorNode)) {
+    return rememberSelectionForTarget(target);
+  }
+  const saved = target ? savedSelections.get(target) : null;
+  return saved ? saved.cloneRange() : null;
+}
+
+function restoreSelectionForTarget(target, range) {
+  if (!target) return;
+  target.focus();
+  if (!range) {
+    placeCaretAtEnd(target);
+    return;
+  }
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  rememberSelectionForTarget(target);
+}
+
+function placeCaretAtEnd(target) {
+  const range = document.createRange();
+  range.selectNodeContents(target);
+  range.collapse(false);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  rememberSelectionForTarget(target);
 }
 
 function syncRichEditor(editor) {
@@ -553,9 +704,11 @@ function selectObject(object) {
   clearSelectedObject();
   selectedObject = object;
   selectedObject.classList.add("selectable-object", "selected-object");
+  if (selectedObject.classList.contains("image-figure")) ensureImageResizeControls(selectedObject);
 }
 
 function clearSelectedObject() {
+  document.querySelectorAll(".image-resize-controls").forEach((controls) => controls.remove());
   if (selectedObject) selectedObject.classList.remove("selected-object");
   selectedObject = null;
 }
@@ -583,12 +736,83 @@ async function editSelectedObject(object = selectedObject) {
     return;
   }
   if (object.classList.contains("image-figure")) {
-    setStatus("Images can be copied or deleted from the right-click menu.");
+    selectObject(object);
+    setStatus("Use the image size controls, or right-click to copy/delete.");
     return;
   }
   if (object.tagName === "TABLE") {
     setStatus("Edit table cells directly, or use Delete Object to remove the table.");
   }
+}
+
+function ensureImageResizeControls(figure) {
+  if (!figure || figure.querySelector(".image-resize-controls")) return;
+  const controls = document.createElement("span");
+  controls.className = "image-resize-controls";
+  controls.contentEditable = "false";
+  controls.innerHTML = `
+    <button type="button" data-image-size="25">25%</button>
+    <button type="button" data-image-size="50">50%</button>
+    <button type="button" data-image-size="75">75%</button>
+    <button type="button" data-image-size="100">Fit</button>
+    <button type="button" data-image-nudge="-10">-</button>
+    <button type="button" data-image-nudge="10">+</button>
+    <span class="image-resize-handle" data-image-drag-size title="Drag to resize"></span>
+  `;
+  figure.appendChild(controls);
+  controls.querySelector("[data-image-drag-size]")?.addEventListener("pointerdown", startImageResizeDrag);
+}
+
+function handleImageResize(event) {
+  const button = event.target.closest("[data-image-size], [data-image-nudge]");
+  if (!button) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  const figure = button.closest(".image-figure");
+  if (!figure) return true;
+  const current = Number.parseFloat(figure.dataset.width || figure.style.width) || 100;
+  const next = button.dataset.imageSize
+    ? Number(button.dataset.imageSize)
+    : clamp(current + Number(button.dataset.imageNudge || 0), 15, 100);
+  setImageFigureWidth(figure, next);
+  selectObject(figure);
+  syncRichEditor(objectOwner(figure));
+  setStatus(`Image width set to ${next}%.`);
+  return true;
+}
+
+function setImageFigureWidth(figure, width) {
+  const next = clamp(Number(width) || 100, 15, 100);
+  figure.dataset.width = String(next);
+  figure.style.width = `${next}%`;
+}
+
+function startImageResizeDrag(event) {
+  const figure = event.target.closest(".image-figure");
+  if (!figure) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const parentWidth = figure.parentElement?.clientWidth || figure.closest(".editor-page, .template-editor, .card-editor")?.clientWidth || 1;
+  const start = {
+    x: event.clientX,
+    width: Number.parseFloat(figure.dataset.width || figure.style.width) || 100
+  };
+  const move = (moveEvent) => {
+    moveEvent.preventDefault();
+    const deltaPercent = ((moveEvent.clientX - start.x) / parentWidth) * 100;
+    setImageFigureWidth(figure, start.width + deltaPercent);
+  };
+  const end = () => {
+    document.removeEventListener("pointermove", move, true);
+    document.removeEventListener("pointerup", end, true);
+    document.removeEventListener("pointercancel", end, true);
+    selectObject(figure);
+    syncRichEditor(objectOwner(figure));
+    setStatus(`Image width set to ${Math.round(Number.parseFloat(figure.dataset.width || "100"))}%.`);
+  };
+  document.addEventListener("pointermove", move, true);
+  document.addEventListener("pointerup", end, true);
+  document.addEventListener("pointercancel", end, true);
 }
 
 function objectLabel(object) {
@@ -735,6 +959,9 @@ function normalizeState(nextState, options = {}) {
   nextState.citations = Array.isArray(nextState.citations)
     ? nextState.citations.map(normalizeCitation).filter((citation) => citation.title || citation.authors || citation.url || citation.doi || citation.pdfName || citation.pdfBlobId)
     : [];
+  nextState.calendarEvents = Array.isArray(nextState.calendarEvents)
+    ? nextState.calendarEvents.map(normalizeCalendarEvent).filter((event) => event.title && event.date)
+    : [];
   nextState.activeNotebook = nextState.notebooks.includes(nextState.activeNotebook)
     ? nextState.activeNotebook
     : nextState.pages.find((page) => page.id === nextState.activeId)?.notebook || nextState.notebooks[0];
@@ -816,6 +1043,22 @@ function seedState() {
     glossaryTerms: defaultGlossaryTerms(),
     citationStyle: "vancouver",
     citationCustomFormat: "{authors}. {title}. {journal}. {year}. {doi} {url}",
+    calendarEvents: [
+      {
+        id: uid(),
+        title: "Review tutorial flashcard",
+        date: dateKey(now),
+        time: "09:00",
+        endTime: "09:25",
+        type: "study",
+        repeat: "none",
+        color: "#2566a8",
+        notes: "Open the Review tab and grade the starter card.",
+        done: false,
+        createdAt: now,
+        updatedAt: now
+      }
+    ],
     citations: [
       {
         id: tutorialCitationId,
@@ -886,6 +1129,7 @@ function renderAll(loadEditor = false) {
   renderTags();
   if (loadEditor) loadActivePageIntoEditor();
   renderDashboard();
+  renderCalendar();
   renderStats();
   renderPageCards();
   renderDueCards();
@@ -918,6 +1162,7 @@ function renderNotebookOptions() {
   });
   els.notebookSelect.value = current;
   els.notebookColorPreview.style.backgroundColor = notebookColor(current);
+  renderReviewFilters();
 }
 
 function renderBinder() {
@@ -1273,6 +1518,301 @@ function renderDueCards() {
   });
 }
 
+function renderCalendar() {
+  if (!els.calendarGrid) return;
+  calendarCursor ||= dateKey(new Date());
+  els.calendarWeekBtn.classList.toggle("active-tool", calendarView === "week");
+  els.calendarMonthBtn.classList.toggle("active-tool", calendarView === "month");
+  renderCalendarGrid();
+  renderCalendarUpcoming();
+}
+
+function renderCalendarGrid() {
+  els.calendarGrid.innerHTML = "";
+  els.calendarGrid.className = `calendar-grid ${calendarView === "month" ? "calendar-month-grid" : "calendar-week-grid"}`;
+  if (calendarView === "month") renderCalendarMonth();
+  else renderCalendarWeek();
+}
+
+function renderCalendarWeek() {
+  const start = startOfWeek(parseDateKey(calendarCursor));
+  const days = Array.from({ length: 7 }, (_, index) => addDays(start, index));
+  els.calendarRangeLabel.textContent = `${formatShortDate(days[0])} - ${formatShortDate(days[6])}`;
+  days.forEach((day) => {
+    const key = dateKey(day);
+    const column = document.createElement("section");
+    column.className = "calendar-day-column" + (key === dateKey(new Date()) ? " today" : "");
+    column.innerHTML = `<header><strong>${weekdayName(day)}</strong><span>${formatShortDate(day)}</span></header>`;
+    const list = document.createElement("div");
+    list.className = "calendar-event-stack";
+    calendarOccurrencesForDate(key).forEach((event) => list.appendChild(calendarEventNode(event, "week")));
+    if (!list.children.length) list.innerHTML = "<p class=\"fine-print\">No events</p>";
+    column.addEventListener("dblclick", () => newCalendarEventDraft(key));
+    column.appendChild(list);
+    els.calendarGrid.appendChild(column);
+  });
+}
+
+function renderCalendarMonth() {
+  const cursor = parseDateKey(calendarCursor);
+  const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const start = startOfWeek(first);
+  els.calendarRangeLabel.textContent = cursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].forEach((day) => {
+    const head = document.createElement("div");
+    head.className = "calendar-month-heading";
+    head.textContent = day;
+    els.calendarGrid.appendChild(head);
+  });
+  Array.from({ length: 42 }, (_, index) => addDays(start, index)).forEach((day) => {
+    const key = dateKey(day);
+    const cell = document.createElement("section");
+    cell.className = "calendar-month-cell";
+    if (day.getMonth() !== cursor.getMonth()) cell.classList.add("muted");
+    if (key === dateKey(new Date())) cell.classList.add("today");
+    cell.innerHTML = `<header>${day.getDate()}</header>`;
+    const events = calendarOccurrencesForDate(key);
+    events.slice(0, 4).forEach((event) => cell.appendChild(calendarEventNode(event, "month")));
+    if (events.length > 4) cell.insertAdjacentHTML("beforeend", `<small class="calendar-more">+${events.length - 4} more</small>`);
+    cell.addEventListener("dblclick", () => newCalendarEventDraft(key));
+    els.calendarGrid.appendChild(cell);
+  });
+}
+
+function calendarEventNode(event, density = "week") {
+  const node = document.createElement("button");
+  node.type = "button";
+  node.className = `calendar-event-chip ${event.done ? "done" : ""} ${density === "month" ? "compact" : ""}`;
+  node.style.setProperty("--event-color", event.color || calendarTypeColor(event.type));
+  node.innerHTML = `
+    <strong>${event.time ? `${escapeHtml(event.time)} ` : ""}${escapeHtml(event.title)}</strong>
+    ${density === "week" ? `<small>${escapeHtml(calendarEventSubtitle(event))}</small>` : ""}
+  `;
+  node.addEventListener("click", (clickEvent) => {
+    clickEvent.stopPropagation();
+    loadCalendarEvent(event.id);
+  });
+  return node;
+}
+
+function renderCalendarUpcoming() {
+  els.calendarUpcomingList.innerHTML = "";
+  const today = dateKey(new Date());
+  const upcoming = calendarOccurrencesBetween(today, dateKey(addDays(new Date(), 90)))
+    .filter((event) => !event.done)
+    .sort(compareCalendarEvents)
+    .slice(0, 10);
+  if (!upcoming.length) {
+    els.calendarUpcomingList.innerHTML = "<p class=\"fine-print\">No upcoming reminders.</p>";
+    return;
+  }
+  upcoming.forEach((event) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "calendar-upcoming-row";
+    row.style.setProperty("--event-color", event.color || calendarTypeColor(event.type));
+    row.innerHTML = `<strong>${escapeHtml(event.title)}</strong><small>${escapeHtml(formatCalendarEventDate(event))} - ${escapeHtml(calendarEventSubtitle(event))}</small>`;
+    row.addEventListener("click", () => loadCalendarEvent(event.id));
+    els.calendarUpcomingList.appendChild(row);
+  });
+}
+
+function setCalendarView(view) {
+  calendarView = view === "month" ? "month" : "week";
+  renderCalendar();
+}
+
+function moveCalendar(direction) {
+  const cursor = parseDateKey(calendarCursor || dateKey(new Date()));
+  calendarCursor = dateKey(calendarView === "month" ? new Date(cursor.getFullYear(), cursor.getMonth() + direction, 1) : addDays(cursor, direction * 7));
+  renderCalendar();
+}
+
+function newCalendarEventDraft(date = calendarCursor || dateKey(new Date())) {
+  selectedCalendarEventId = null;
+  els.calendarTitleInput.value = "";
+  els.calendarDateInput.value = date;
+  els.calendarTimeInput.value = "09:00";
+  els.calendarEndTimeInput.value = "09:30";
+  els.calendarTypeSelect.value = "reminder";
+  els.calendarRepeatSelect.value = "none";
+  els.calendarRepeatUntilInput.value = "";
+  setCalendarRepeatDays([parseDateKey(date).getDay()]);
+  updateCalendarRepeatControls();
+  els.calendarColorInput.value = calendarTypeColor("reminder");
+  els.calendarNotesInput.value = "";
+  els.calendarDoneBtn.textContent = "Mark Done";
+  els.calendarTitleInput.focus();
+}
+
+function loadCalendarEvent(id) {
+  const event = state.calendarEvents.find((item) => item.id === id);
+  if (!event) return;
+  selectedCalendarEventId = id;
+  calendarCursor = event.date;
+  els.calendarTitleInput.value = event.title;
+  els.calendarDateInput.value = event.date;
+  els.calendarTimeInput.value = event.time || "";
+  els.calendarEndTimeInput.value = event.endTime || "";
+  els.calendarTypeSelect.value = event.type || "reminder";
+  els.calendarRepeatSelect.value = event.repeat || "none";
+  els.calendarRepeatUntilInput.value = event.repeatUntil || "";
+  setCalendarRepeatDays(event.repeatDays?.length ? event.repeatDays : [parseDateKey(event.date).getDay()]);
+  updateCalendarRepeatControls();
+  els.calendarColorInput.value = normalizeHexColor(event.color) || calendarTypeColor(event.type);
+  els.calendarNotesInput.value = event.notes || "";
+  els.calendarDoneBtn.textContent = event.done ? "Mark Open" : "Mark Done";
+  renderCalendar();
+}
+
+function saveCalendarEvent() {
+  const title = els.calendarTitleInput.value.trim();
+  const date = els.calendarDateInput.value || dateKey(new Date());
+  if (!title) {
+    setStatus("Calendar event needs a title.");
+    return;
+  }
+  const now = Date.now();
+  const previous = selectedCalendarEventId ? state.calendarEvents.find((item) => item.id === selectedCalendarEventId) : null;
+  const repeat = els.calendarRepeatSelect.value;
+  const repeatDays = selectedCalendarRepeatDays();
+  const repeatUntil = els.calendarRepeatUntilInput.value;
+  if (needsRepeatEndDate(repeat, repeatDays) && !repeatUntil) {
+    setStatus("Choose a repeat-until date for events that happen multiple times per week.");
+    els.calendarRepeatUntilInput.focus();
+    return;
+  }
+  if (repeatUntil && repeatUntil < date) {
+    setStatus("Repeat-until date must be after the event date.");
+    els.calendarRepeatUntilInput.focus();
+    return;
+  }
+  const event = normalizeCalendarEvent({
+    id: selectedCalendarEventId || uid(),
+    title,
+    date,
+    time: els.calendarTimeInput.value,
+    endTime: els.calendarEndTimeInput.value,
+    type: els.calendarTypeSelect.value,
+    repeat,
+    repeatDays,
+    repeatUntil,
+    color: els.calendarColorInput.value,
+    notes: els.calendarNotesInput.value.trim(),
+    done: Boolean(previous?.done),
+    createdAt: previous?.createdAt || now,
+    updatedAt: now
+  });
+  const existing = state.calendarEvents.findIndex((item) => item.id === event.id);
+  if (existing >= 0) state.calendarEvents.splice(existing, 1, event);
+  else state.calendarEvents.push(event);
+  selectedCalendarEventId = event.id;
+  calendarCursor = event.date;
+  saveState();
+  renderCalendar();
+  setStatus(`Calendar ${event.type} saved.`);
+}
+
+async function deleteCalendarEvent() {
+  if (!selectedCalendarEventId) {
+    setStatus("Select a calendar event first.");
+    return;
+  }
+  const ok = await retroConfirm("Delete Event", "Delete this calendar event or reminder?", "warning");
+  if (!ok) return;
+  state.calendarEvents = state.calendarEvents.filter((event) => event.id !== selectedCalendarEventId);
+  selectedCalendarEventId = null;
+  saveState();
+  newCalendarEventDraft(calendarCursor || dateKey(new Date()));
+  renderCalendar();
+  setStatus("Calendar event deleted.");
+}
+
+function toggleCalendarEventDone() {
+  const event = state.calendarEvents.find((item) => item.id === selectedCalendarEventId);
+  if (!event) {
+    setStatus("Select a calendar event first.");
+    return;
+  }
+  event.done = !event.done;
+  event.updatedAt = Date.now();
+  saveState();
+  loadCalendarEvent(event.id);
+  setStatus(event.done ? "Calendar event marked done." : "Calendar event reopened.");
+}
+
+function calendarOccurrencesForDate(key) {
+  return state.calendarEvents
+    .filter((event) => calendarEventOccursOn(event, key))
+    .map((event) => ({ ...event, occurrenceDate: key }))
+    .sort(compareCalendarEvents);
+}
+
+function selectedCalendarRepeatDays() {
+  return [...document.querySelectorAll("[data-repeat-day]:checked")]
+    .map((input) => Number(input.dataset.repeatDay))
+    .filter((day) => day >= 0 && day <= 6);
+}
+
+function setCalendarRepeatDays(days = []) {
+  const selected = new Set(days.map(Number));
+  document.querySelectorAll("[data-repeat-day]").forEach((input) => {
+    input.checked = selected.has(Number(input.dataset.repeatDay));
+  });
+  updateCalendarRepeatSummary();
+}
+
+function updateCalendarRepeatControls() {
+  const repeat = els.calendarRepeatSelect.value;
+  const date = els.calendarDateInput.value || calendarCursor || dateKey(new Date());
+  if (repeat === "none") {
+    els.calendarRepeatDaysBtn.disabled = true;
+    els.calendarRepeatUntilInput.disabled = true;
+    els.calendarRepeatUntilInput.value = "";
+  } else {
+    els.calendarRepeatDaysBtn.disabled = repeat !== "weekly";
+    els.calendarRepeatUntilInput.disabled = false;
+    if (repeat === "weekdays") setCalendarRepeatDays([1, 2, 3, 4, 5]);
+    if (repeat === "weekly" && !selectedCalendarRepeatDays().length) setCalendarRepeatDays([parseDateKey(date).getDay()]);
+  }
+  updateCalendarRepeatSummary();
+}
+
+function updateCalendarRepeatSummary() {
+  const repeat = els.calendarRepeatSelect?.value || "none";
+  const days = selectedCalendarRepeatDays();
+  if (!els.calendarRepeatDaysSummary) return;
+  if (repeat === "none") {
+    els.calendarRepeatDaysSummary.textContent = "No repeat";
+  } else if (repeat === "weekly") {
+    els.calendarRepeatDaysSummary.textContent = days.length ? days.map(dayNameShort).join(", ") : "Choose days";
+  } else if (repeat === "weekdays") {
+    els.calendarRepeatDaysSummary.textContent = "Mon-Fri";
+  } else {
+    els.calendarRepeatDaysSummary.textContent = repeatLabel(repeat);
+  }
+}
+
+function dayNameShort(day) {
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day] || "";
+}
+
+function needsRepeatEndDate(repeat, days) {
+  if (repeat === "daily" || repeat === "weekdays") return true;
+  if (repeat === "weekly" && days.length > 1) return true;
+  return false;
+}
+
+function calendarOccurrencesBetween(startKey, endKey) {
+  const start = parseDateKey(startKey);
+  const end = parseDateKey(endKey);
+  const occurrences = [];
+  for (let cursor = start; cursor <= end; cursor = addDays(cursor, 1)) {
+    occurrences.push(...calendarOccurrencesForDate(dateKey(cursor)));
+  }
+  return occurrences;
+}
+
 function renderPageCards() {
   const page = activePage();
   els.pageCards.innerHTML = "";
@@ -1302,18 +1842,47 @@ function renderPageCards() {
 }
 
 function renderReview() {
+  renderReviewFilters();
   buildReviewQueue();
   const item = reviewQueue[reviewIndex];
   if (!item) {
-    els.reviewCard.innerHTML = "<div class=\"review-empty\">No cards due. Create notes, then turn them into cards.</div>";
+    els.reviewCard.innerHTML = "<div class=\"review-empty\">No cards due in this review scope.</div>";
     return;
   }
   const face = answerVisible ? cardFaceHtml(item.card, "back") : cardFaceHtml(item.card, "front");
   els.reviewCard.innerHTML = `
-    <small>${escapeHtml(item.page.title)} - click card to ${answerVisible ? "hide" : "show"} answer</small>
+    <small>${escapeHtml(item.page.notebook)} / ${escapeHtml(item.page.title)} - ${reviewIndex + 1} of ${reviewQueue.length} - click card to ${answerVisible ? "hide" : "show"} answer</small>
     <div class="review-face">${face}</div>
     ${answerVisible ? "<small>Grade your recall below.</small>" : "<small>Think first, then reveal.</small>"}
   `;
+}
+
+function renderReviewFilters() {
+  if (!els.reviewNotebookSelect || !els.reviewPageSelect) return;
+  if (!reviewNotebookFilter || !state.notebooks.includes(reviewNotebookFilter)) reviewNotebookFilter = activeNotebookName();
+  const notebookPrevious = els.reviewNotebookSelect.value || reviewNotebookFilter;
+  els.reviewNotebookSelect.innerHTML = "";
+  state.notebooks.forEach((notebook) => {
+    const option = document.createElement("option");
+    option.value = notebook;
+    option.textContent = notebook;
+    els.reviewNotebookSelect.appendChild(option);
+  });
+  reviewNotebookFilter = state.notebooks.includes(notebookPrevious) ? notebookPrevious : reviewNotebookFilter;
+  els.reviewNotebookSelect.value = reviewNotebookFilter;
+
+  const pagePrevious = reviewPageFilter;
+  const pages = state.pages.filter((page) => page.notebook === reviewNotebookFilter);
+  els.reviewPageSelect.innerHTML = "<option value=\"\">All pages</option>";
+  pages.forEach((page) => {
+    const due = dueCountForPage(page);
+    const option = document.createElement("option");
+    option.value = page.id;
+    option.textContent = `${page.title}${due ? ` (${due} due)` : ""}`;
+    els.reviewPageSelect.appendChild(option);
+  });
+  reviewPageFilter = pages.some((page) => page.id === pagePrevious) ? pagePrevious : "";
+  els.reviewPageSelect.value = reviewPageFilter;
 }
 
 function renderLatexSnippets() {
@@ -1372,7 +1941,12 @@ function renderEquationSelect() {
 }
 
 function buildReviewQueue() {
-  reviewQueue = dueCards();
+  const notebook = reviewNotebookFilter || activeNotebookName();
+  reviewQueue = dueCards().filter(({ page }) => {
+    if (page.notebook !== notebook) return false;
+    if (reviewPageFilter && page.id !== reviewPageFilter) return false;
+    return true;
+  });
   if (reviewIndex >= reviewQueue.length) reviewIndex = 0;
 }
 
@@ -1390,11 +1964,14 @@ function switchMainTab(name) {
   if (name === "latex") previewLatex();
   if (name === "review") renderReview();
   if (name === "citations") renderCitationManager();
+  if (name === "calendar") renderCalendar();
 }
 
 function selectNotebook(notebook) {
   syncEditorNow();
   state.activeNotebook = notebook;
+  reviewNotebookFilter = notebook;
+  reviewPageFilter = "";
   const folder = firstFolderForNotebook(notebook);
   selectedFolderId = folder?.id;
   const firstPage = state.pages.find((page) => page.notebook === notebook);
@@ -1407,6 +1984,7 @@ function selectPage(id) {
   syncEditorNow();
   activeId = id;
   state.activeNotebook = activePage()?.notebook || state.activeNotebook;
+  reviewNotebookFilter = state.activeNotebook;
   selectedFolderId = activePage()?.folderId || selectedFolderId;
   saveState();
   renderAll(true);
@@ -1692,14 +2270,20 @@ function execCardCommand(command) {
   syncRichEditor(target);
 }
 
-function insertHtml(html) {
-  const target = currentRichEditor();
+function insertHtml(html, targetOverride = null) {
+  const target = targetOverride || currentRichEditor();
+  const range = captureSelectionForTarget(target);
+  const scrollTop = target.scrollTop;
   if (target === els.editor) switchMainTab("write");
-  target.focus();
+  restoreSelectionForTarget(target, range);
   document.execCommand("insertHTML", false, html);
+  rememberSelectionForTarget(target);
   syncRichEditor(target);
   renderWidgets();
   typesetMath();
+  requestAnimationFrame(() => {
+    if (document.body.contains(target)) target.scrollTop = scrollTop;
+  });
 }
 
 function insertSelectedEquation() {
@@ -1733,12 +2317,14 @@ function insertEquation(latex, display = els.latexDisplayMode.checked) {
   insertHtml(html);
 }
 
-async function insertTable() {
+async function insertTable(target = currentRichEditor()) {
+  const range = captureSelectionForTarget(target);
   const size = await retroPrompt("Insert Table", "Rows x columns, for example 4x3.", "4x3");
   if (!size) return;
+  restoreSelectionForTarget(target, range);
   const [rowsRaw, colsRaw] = size.toLowerCase().split("x");
   const rows = clamp(parseInt(rowsRaw, 10) || 3, 1, 12);
-  const cols = clamp(parseInt(colsRaw, 10) || 3, 1, 8);
+  const cols = clamp(parseInt(colsRaw, 10) || 3, 1, maxTableColumnsForTarget(target));
   let html = "<table><thead><tr>";
   for (let c = 1; c <= cols; c += 1) html += `<th>Header ${c}</th>`;
   html += "</tr></thead><tbody>";
@@ -1748,24 +2334,39 @@ async function insertTable() {
     html += "</tr>";
   }
   html += "</tbody></table><p></p>";
-  insertHtml(html);
+  insertHtml(html, target);
+  if (cols < (parseInt(colsRaw, 10) || 3)) setStatus(`Table limited to ${cols} columns for this page width.`);
 }
 
-async function insertChart() {
+function maxTableColumnsForTarget(target) {
+  if (target !== els.editor) return 6;
+  const page = activePage();
+  const size = PAPER_SIZES[paperSizeKey(page?.paperSize)];
+  const usable = (cssLengthToPixels(size.width) || 816) - (cssLengthToPixels(size.paddingX) || 64) * 2;
+  return clamp(Math.floor(usable / 92), 3, 8);
+}
+
+async function insertChart(target = currentRichEditor()) {
+  const range = captureSelectionForTarget(target);
   const data = await openDataGridDialog("Chart Builder", defaultDataSet("chart"), "chart");
   if (!data) return;
+  restoreSelectionForTarget(target, range);
   const encoded = encodeDataSet(data);
   insertHtml(
-    `<div class="retro-widget chart-widget" contenteditable="false" data-chart="${encoded}">${dataWidgetTitleHtml(data)}<canvas class="chart-canvas"></canvas></div><p></p>`
+    `<div class="retro-widget chart-widget" contenteditable="false" data-chart="${encoded}">${dataWidgetTitleHtml(data)}<canvas class="chart-canvas"></canvas></div><p></p>`,
+    target
   );
 }
 
-async function insertGraph() {
+async function insertGraph(target = currentRichEditor()) {
+  const range = captureSelectionForTarget(target);
   const data = await openDataGridDialog("Graph Builder", defaultDataSet("graph"), "graph");
   if (!data) return;
+  restoreSelectionForTarget(target, range);
   const encoded = encodeDataSet(data);
   insertHtml(
-    `<div class="retro-widget graph-widget" contenteditable="false" data-graph="${encoded}">${dataWidgetTitleHtml(data)}<canvas class="graph-canvas"></canvas></div><p></p>`
+    `<div class="retro-widget graph-widget" contenteditable="false" data-graph="${encoded}">${dataWidgetTitleHtml(data)}<canvas class="graph-canvas"></canvas></div><p></p>`,
+    target
   );
 }
 
@@ -1823,17 +2424,20 @@ async function handleTemplateInsert(action, anchor) {
   } else if (action === "equation") {
     insertSelectedEquation();
   } else if (action === "table") {
-    await insertTable();
+    await insertTable(els.templateEditor);
   } else if (action === "chart") {
-    await insertChart();
+    await insertChart(els.templateEditor);
   } else if (action === "graph") {
-    await insertGraph();
+    await insertGraph(els.templateEditor);
+  } else if (action === "image") {
+    insertImage(els.templateEditor);
   } else if (action === "divider") {
     insertDivider();
   }
 }
 
-function insertImage() {
+function insertImage(target = currentRichEditor()) {
+  pendingImageTarget = target;
   els.imageFileInput.value = "";
   els.imageFileInput.click();
 }
@@ -1850,19 +2454,25 @@ function pasteTextFromClipboard() {
 
 function insertSelectedImageFile() {
   const file = els.imageFileInput.files?.[0];
-  if (!file) return;
-  if (!file.type.startsWith("image/")) {
-    setStatus("Choose an image file.");
+  if (!file) {
+    pendingImageTarget = null;
     return;
   }
+  if (!file.type.startsWith("image/")) {
+    setStatus("Choose an image file.");
+    pendingImageTarget = null;
+    return;
+  }
+  const target = pendingImageTarget || currentRichEditor();
+  pendingImageTarget = null;
   const reader = new FileReader();
-  reader.addEventListener("load", () => insertImageDataUrl(reader.result, file.name));
+  reader.addEventListener("load", () => insertImageDataUrl(reader.result, file.name, target));
   reader.readAsDataURL(file);
 }
 
-function insertImageDataUrl(src, alt = "Inserted image") {
+function insertImageDataUrl(src, alt = "Inserted image", target = currentRichEditor()) {
   if (!src) return;
-  insertHtml(`<figure class="image-figure" contenteditable="false"><img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" /></figure><p></p>`);
+  insertHtml(`<figure class="image-figure" contenteditable="false"><img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" /></figure><p></p>`, target);
   setStatus("Image inserted.");
 }
 
@@ -1876,23 +2486,49 @@ function handleEditorPaste(event) {
   const target = event.currentTarget;
   const reader = new FileReader();
   reader.addEventListener("load", () => {
-    withRichEditor(target, () => insertImageDataUrl(reader.result, "Pasted image"));
+    insertImageDataUrl(reader.result, "Pasted image", target);
   });
   reader.readAsDataURL(file);
 }
 
-function pasteImageFromClipboard() {
-  const target = currentRichEditor();
+function pasteImageFromClipboard(target = currentRichEditor(), options = {}) {
   if (!target?.isContentEditable) {
     setStatus("Click in a note, template, phrase, or flashcard before pasting an image.");
-    return;
+    return false;
   }
-  const src = window.retroNotebook?.clipboard?.readImageDataUrl?.() || "";
+  const src = clipboardImageDataUrl();
   if (!src) {
-    setStatus("Clipboard does not contain an image.");
-    return;
+    if (!options.silentIfEmpty) setStatus("Clipboard does not contain an image.");
+    return false;
   }
-  insertImageDataUrl(src, "Clipboard image");
+  insertImageDataUrl(src, "Clipboard image", target);
+  return true;
+}
+
+function clipboardImageDataUrl() {
+  const imageData = window.retroNotebook?.clipboard?.readImageDataUrl?.() || "";
+  if (imageData) return imageData;
+  const text = window.retroNotebook?.clipboard?.readText?.() || "";
+  return /^data:image\/[a-z0-9.+-]+;base64,/i.test(text.trim()) ? text.trim() : "";
+}
+
+function copyImageToClipboard(src) {
+  if (!src) {
+    setStatus("Right-click or select an inserted image first.");
+    return false;
+  }
+  let copied = false;
+  try {
+    copied = Boolean(window.retroNotebook?.clipboard?.writeImageDataUrl?.(src));
+  } catch {
+    copied = false;
+  }
+  if (!copied && /^data:image\//i.test(src)) {
+    window.retroNotebook?.clipboard?.writeText?.(src);
+    copied = true;
+  }
+  setStatus(copied ? "Image copied." : "Could not copy this image.");
+  return copied;
 }
 
 function renderCustomTemplates() {
@@ -2520,6 +3156,7 @@ function focusSearch() {
 }
 
 function openPrintPreview() {
+  ensureActivePageLoadedForPrint();
   syncEditorNow();
   applyPageSetup();
   els.printPreviewOverlay.hidden = false;
@@ -2531,6 +3168,7 @@ function closePrintPreview() {
 }
 
 function printActivePage() {
+  ensureActivePageLoadedForPrint();
   syncEditorNow();
   renderPrintPreview();
   document.body.classList.add("printing");
@@ -2542,28 +3180,27 @@ function printActivePage() {
 function renderPrintPreview() {
   const page = activePage();
   if (!page || !els.printPreviewPages) return;
-  if (els.editor.dataset.pageId !== page.id) loadActivePageIntoEditor();
+  ensureActivePageLoadedForPrint();
   syncEditorNow();
   applyPaperSize(page.paperSize);
   renderWidgets();
   els.printPreviewPages.innerHTML = "";
   const setup = normalizePageSetup(page.pageSetup);
-  const sourceNodes = [...els.editor.childNodes]
-    .filter((node) => !(node.nodeType === Node.ELEMENT_NODE && (node.classList.contains("auto-page-break") || node.classList.contains("manual-page-break"))))
-    .map(cloneNodeForPrint);
+  const sourceNodes = printableEditorNodes().map(cloneNodeForPrint);
   if (!sourceNodes.length) sourceNodes.push(document.createElement("p"));
+  const groups = groupPageFlowNodes(sourceNodes);
   const pages = [];
   let previewPage = createPreviewPage(pages.length + 1, setup);
   pages.push(previewPage);
   els.printPreviewPages.appendChild(previewPage.shell);
-  sourceNodes.forEach((node) => {
-    previewPage.body.appendChild(node);
-    if (previewPage.body.scrollHeight > previewPage.body.clientHeight + 4 && previewPage.body.childNodes.length > 1) {
-      previewPage.body.removeChild(node);
+  groups.forEach((group) => {
+    appendNodeGroup(previewPage.body, group);
+    if (previewPage.body.scrollHeight > previewPage.body.clientHeight + 4 && previewPage.body.childNodes.length > group.length) {
+      removeNodeGroup(group);
       previewPage = createPreviewPage(pages.length + 1, setup);
       pages.push(previewPage);
       els.printPreviewPages.appendChild(previewPage.shell);
-      previewPage.body.appendChild(node);
+      appendNodeGroup(previewPage.body, group);
     }
   });
   pages.forEach((entry, index) => updatePreviewPageChrome(entry.shell, index + 1, pages.length, setup));
@@ -2571,10 +3208,64 @@ function renderPrintPreview() {
   if (window.MathJax?.typesetPromise) window.MathJax.typesetPromise([els.printPreviewPages]).catch(() => {});
 }
 
+function ensureActivePageLoadedForPrint() {
+  const page = activePage();
+  if (page && els.editor.dataset.pageId !== page.id) loadActivePageIntoEditor();
+}
+
+function printableEditorNodes() {
+  return [...els.editor.childNodes].filter((node) => {
+    return !(node.nodeType === Node.ELEMENT_NODE && (node.classList.contains("auto-page-break") || node.classList.contains("manual-page-break")));
+  });
+}
+
+function appendNodeGroup(parent, group) {
+  group.forEach((node) => parent.appendChild(node));
+}
+
+function removeNodeGroup(group) {
+  group.forEach((node) => node.parentNode?.removeChild(node));
+}
+
+function groupPageFlowNodes(nodes) {
+  const groups = [];
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    const group = [node];
+    if (isHeadingNode(node)) {
+      let cursor = index + 1;
+      let capturedSignificantBlock = false;
+      while (cursor < nodes.length && !isHeadingNode(nodes[cursor]) && group.length < 4) {
+        group.push(nodes[cursor]);
+        if (isAnchoringPrintBlock(nodes[cursor])) {
+          capturedSignificantBlock = true;
+          break;
+        }
+        cursor += 1;
+      }
+      if (capturedSignificantBlock) index += group.length - 1;
+    }
+    groups.push(group);
+  }
+  return groups;
+}
+
+function isHeadingNode(node) {
+  return node?.nodeType === Node.ELEMENT_NODE && /^H[1-3]$/.test(node.tagName);
+}
+
+function isAnchoringPrintBlock(node) {
+  return node?.nodeType === Node.ELEMENT_NODE && (
+    node.classList.contains("retro-widget") ||
+    node.classList.contains("image-figure") ||
+    node.matches("table, ul, ol, blockquote")
+  );
+}
+
 function cloneNodeForPrint(node) {
   const clone = node.cloneNode(true);
   if (node.nodeType !== Node.ELEMENT_NODE) return clone;
-  clone.querySelectorAll?.(".widget-actions, .graph-rotate-actions, .auto-page-break").forEach((actions) => actions.remove());
+  clone.querySelectorAll?.(".widget-actions, .graph-rotate-actions, .image-resize-controls, .auto-page-break").forEach((actions) => actions.remove());
   const sourceCanvases = node.matches?.("canvas") ? [node] : [...node.querySelectorAll("canvas")];
   const cloneCanvases = clone.matches?.("canvas") ? [clone] : [...clone.querySelectorAll("canvas")];
   sourceCanvases.forEach((canvas, index) => {
@@ -2587,6 +3278,8 @@ function cloneNodeForPrint(node) {
     } catch {
       image.alt = "Canvas preview unavailable";
     }
+    const rect = canvas.getBoundingClientRect();
+    if (rect.height) image.style.height = `${Math.round(rect.height)}px`;
     target.replaceWith(image);
   });
   return clone;
@@ -2697,6 +3390,7 @@ function appMenuItems() {
     ],
     view: [
       { label: "Overview", action: "overview" },
+      { label: "Calendar", action: "calendar" },
       { label: "Page Setup", action: "pageSetup" },
       { label: "LaTeX", action: "latex" },
       { label: "Templates", action: "templates" },
@@ -2744,6 +3438,7 @@ function appMenuItems() {
       { label: "Template Builder", action: "templates" },
       { label: "SmartPhrases", action: "phrases" },
       { label: "Citation Manager", action: "citations" },
+      { label: "Calendar", action: "calendar" },
       { label: "Start Dictation", action: "dictation" },
       { label: "Read Selected Text", action: "speak" },
       { separator: true },
@@ -2786,6 +3481,7 @@ function menuActions() {
     selectAll: () => document.execCommand("selectAll"),
     find: focusSearch,
     overview: () => switchMainTab("dashboard"),
+    calendar: () => switchMainTab("calendar"),
     pageSetup: openPageSetupDialog,
     latex: () => switchMainTab("latex"),
     templates: () => switchMainTab("insert"),
@@ -3426,6 +4122,7 @@ function updatePhraseMenu() {
 }
 
 function handleEditorKeydown(event) {
+  if (["Backspace", "Delete", "Enter", " "].includes(event.key)) removeAutoPageBreaks();
   if ((event.key === "Backspace" || event.key === "Delete") && handleChecklistDeleteKey(event)) return;
   if (els.phraseMenu.hidden) return;
   if (event.key === "Escape") {
@@ -3607,18 +4304,13 @@ async function runContextAction(action) {
       hideContextMenu();
       return;
     }
-    withRichEditor(contextTarget, pasteImageFromClipboard);
+    pasteImageFromClipboard(contextTarget);
   } else if (action === "copy") {
     const selection = window.getSelection().toString();
     if (selection && window.retroNotebook?.clipboard?.writeText) window.retroNotebook.clipboard.writeText(selection);
     document.execCommand("copy");
   } else if (action === "copyImage") {
-    if (!contextImageSrc || !window.retroNotebook?.clipboard?.writeImageDataUrl?.(contextImageSrc)) {
-      setStatus("Right-click an inserted image to copy it.");
-      hideContextMenu();
-      return;
-    }
-    setStatus("Image copied.");
+    copyImageToClipboard(contextImageSrc);
   } else if (action === "link") {
     await insertHyperlink();
   } else if (action === "editObject") {
@@ -3712,13 +4404,19 @@ function cleanRichText(root) {
 }
 
 function removeTransientEditorNodes(root) {
-  root.querySelectorAll?.(".auto-page-break, .manual-page-break, mark.find-mark").forEach((node) => {
+  root.querySelectorAll?.(".auto-page-break, .manual-page-break, .image-resize-controls, mark.find-mark").forEach((node) => {
     if (node.matches?.("mark.find-mark")) {
       node.replaceWith(document.createTextNode(node.textContent));
     } else {
       node.remove();
     }
   });
+}
+
+function removeAutoPageBreaks() {
+  if (!els.editor) return;
+  clearTimeout(paginationTimer);
+  els.editor.querySelectorAll(".auto-page-break").forEach((node) => node.remove());
 }
 
 function stripStoredPageBreaks(html) {
@@ -3734,8 +4432,8 @@ function stripStoredPageBreaks(html) {
 
 function scheduleAutoPagination() {
   if (!els.editor || !document.body.contains(els.editor)) return;
-  cancelAnimationFrame(paginationFrame);
-  paginationFrame = requestAnimationFrame(paginateEditor);
+  clearTimeout(paginationTimer);
+  paginationTimer = setTimeout(paginateEditor, 220);
 }
 
 function paginateEditor() {
@@ -3746,19 +4444,22 @@ function paginateEditor() {
     const style = getComputedStyle(document.documentElement);
     const pageHeight = cssLengthToPixels(style.getPropertyValue("--paper-height")) || 1056;
     const padY = cssLengthToPixels(style.getPropertyValue("--paper-padding-y")) || 52;
-    const usablePageHeight = Math.max(160, pageHeight - padY);
+    const usablePageHeight = Math.max(160, pageHeight - padY * 2);
     let nextBreakAt = usablePageHeight;
-    const children = [...els.editor.children].filter((child) => !child.classList.contains("auto-page-break"));
-    children.forEach((child) => {
-      if (child === els.editor.firstElementChild) return;
-      const bottom = child.offsetTop + child.offsetHeight;
-      if (bottom <= nextBreakAt || child.offsetHeight > usablePageHeight * 0.92) return;
+    const contentTop = els.editor.firstElementChild?.offsetTop || 0;
+    const groups = groupPageFlowNodes([...els.editor.children].filter((child) => !child.classList.contains("auto-page-break")));
+    groups.forEach((group) => {
+      const first = group[0];
+      const last = group[group.length - 1];
+      if (!first || first === els.editor.firstElementChild) return;
+      const bottom = last.offsetTop + last.offsetHeight - contentTop;
+      if (bottom <= nextBreakAt) return;
       const marker = document.createElement("div");
       marker.className = "auto-page-break";
       marker.contentEditable = "false";
       marker.setAttribute("aria-label", "Automatic page break");
-      child.before(marker);
-      nextBreakAt = marker.offsetTop + marker.offsetHeight + usablePageHeight;
+      first.before(marker);
+      nextBreakAt = marker.offsetTop + marker.offsetHeight - contentTop + usablePageHeight;
     });
   } finally {
     paginatingEditor = false;
@@ -3773,11 +4474,11 @@ function dueCards() {
     .sort((a, b) => a.card.due - b.card.due);
 }
 
-function renderWidgets() {
-  document.querySelectorAll(".retro-widget").forEach(ensureWidgetControls);
-  document.querySelectorAll(".chart-widget").forEach(renderChartWidget);
-  document.querySelectorAll(".graph-widget").forEach(renderGraphWidget);
-  document.querySelectorAll(".draw-widget").forEach(renderDrawWidget);
+function renderWidgets(root = document) {
+  root.querySelectorAll(".retro-widget").forEach(ensureWidgetControls);
+  root.querySelectorAll(".chart-widget").forEach(renderChartWidget);
+  root.querySelectorAll(".graph-widget").forEach(renderGraphWidget);
+  root.querySelectorAll(".draw-widget").forEach(renderDrawWidget);
 }
 
 function ensureWidgetControls(widget) {
@@ -3905,6 +4606,16 @@ function renderChartWidget(widget) {
   const data = decodeDataSet(widget.dataset.chart, "chart");
   const canvas = widget.querySelector("canvas");
   const rect = canvas.getBoundingClientRect();
+  if (rect.width < 2 || rect.height < 2) {
+    if (widget.offsetParent && !canvas.dataset.renderRetry) {
+      canvas.dataset.renderRetry = "true";
+      requestAnimationFrame(() => {
+        delete canvas.dataset.renderRetry;
+        renderChartWidget(widget);
+      });
+    }
+    return;
+  }
   const scale = window.devicePixelRatio || 1;
   canvas.width = Math.max(1, Math.floor(rect.width * scale));
   canvas.height = Math.max(1, Math.floor(rect.height * scale));
@@ -3930,29 +4641,32 @@ function drawChartByType(ctx, data, w, h) {
 }
 
 function drawColumnChart(ctx, data, w, h) {
-  drawAxes(ctx, w, h, 46, 22, 20, 40);
+  const layout = chartPlotLayout(w, 46, 22, 40);
+  drawAxes(ctx, w, h, layout.left, layout.top, layout.right, layout.bottom);
   const values = data.rows.flatMap((row) => data.variables.map((variable) => numberFromRow(row, variable.key)));
   const max = Math.max(1, ...values);
   const colors = chartColors();
-  const groupW = Math.max(32, (w - 82) / Math.max(1, data.rows.length));
+  const plotW = Math.max(80, w - layout.left - layout.right);
+  const plotH = Math.max(80, h - layout.top - layout.bottom);
+  const groupW = Math.max(32, plotW / Math.max(1, data.rows.length));
   const barW = Math.max(6, Math.min(24, (groupW - 10) / Math.max(1, data.variables.length)));
   data.rows.forEach((row, rowIndex) => {
-    const groupX = 52 + rowIndex * groupW;
+    const groupX = layout.left + 8 + rowIndex * groupW;
     data.variables.forEach((variable, varIndex) => {
       const value = numberFromRow(row, variable.key);
-      const barH = ((h - 72) * value) / max;
+      const barH = (plotH * value) / max;
       const x = groupX + varIndex * (barW + 2);
       ctx.fillStyle = colors[varIndex % colors.length];
-      ctx.fillRect(x, h - 41 - barH, barW, barH);
+      ctx.fillRect(x, h - layout.bottom - barH, barW, barH);
       ctx.fillStyle = "#111";
       ctx.font = "10px MS Sans Serif, Arial";
-      ctx.fillText(String(value), x, h - 45 - barH);
+      ctx.fillText(String(value), x, h - layout.bottom - 4 - barH);
     });
     ctx.fillStyle = "#111";
     ctx.font = "11px MS Sans Serif, Arial";
     ctx.fillText(row.label.slice(0, 12), groupX, h - 18);
   });
-  drawLegend(ctx, data.variables, colors, w - 150, 14);
+  drawLegend(ctx, data.variables, colors, layout.legendX, 14);
 }
 
 function drawBarChart(ctx, data, w, h) {
@@ -3961,7 +4675,8 @@ function drawBarChart(ctx, data, w, h) {
   const max = Math.max(1, ...values);
   const left = 84;
   const top = 24;
-  const right = 30;
+  const layout = chartPlotLayout(w, left, top, 28);
+  const right = layout.right;
   const bottom = 28;
   const rowH = Math.max(22, (h - top - bottom) / Math.max(1, data.rows.length));
   drawAxes(ctx, w, h, left, top, right, bottom);
@@ -3970,7 +4685,7 @@ function drawBarChart(ctx, data, w, h) {
     data.variables.forEach((variable, varIndex) => {
       const value = numberFromRow(row, variable.key);
       const barH = Math.max(5, (rowH - 8) / data.variables.length - 2);
-      const barW = ((w - left - right) * value) / max;
+      const barW = (Math.max(80, w - left - right) * value) / max;
       ctx.fillStyle = colors[varIndex % colors.length];
       ctx.fillRect(left, y + varIndex * (barH + 2), barW, barH);
       ctx.fillStyle = "#111";
@@ -3981,21 +4696,24 @@ function drawBarChart(ctx, data, w, h) {
     ctx.font = "11px MS Sans Serif, Arial";
     ctx.fillText(row.label.slice(0, 12), 10, y + 12);
   });
-  drawLegend(ctx, data.variables, colors, w - 150, 14);
+  drawLegend(ctx, data.variables, colors, layout.legendX, 14);
 }
 
 function drawStackedColumnChart(ctx, data, w, h) {
-  drawAxes(ctx, w, h, 46, 22, 20, 40);
+  const layout = chartPlotLayout(w, 46, 22, 40);
+  drawAxes(ctx, w, h, layout.left, layout.top, layout.right, layout.bottom);
   const colors = chartColors();
   const max = Math.max(1, ...data.rows.map((row) => data.variables.reduce((sum, variable) => sum + numberFromRow(row, variable.key), 0)));
-  const groupW = Math.max(36, (w - 82) / Math.max(1, data.rows.length));
+  const plotW = Math.max(80, w - layout.left - layout.right);
+  const plotH = Math.max(80, h - layout.top - layout.bottom);
+  const groupW = Math.max(36, plotW / Math.max(1, data.rows.length));
   const barW = Math.max(14, Math.min(34, groupW - 18));
   data.rows.forEach((row, rowIndex) => {
-    const x = 56 + rowIndex * groupW;
-    let y = h - 41;
+    const x = layout.left + 10 + rowIndex * groupW;
+    let y = h - layout.bottom;
     data.variables.forEach((variable, varIndex) => {
       const value = numberFromRow(row, variable.key);
-      const segmentH = ((h - 72) * value) / max;
+      const segmentH = (plotH * value) / max;
       y -= segmentH;
       ctx.fillStyle = colors[varIndex % colors.length];
       ctx.fillRect(x, y, barW, segmentH);
@@ -4004,7 +4722,7 @@ function drawStackedColumnChart(ctx, data, w, h) {
     ctx.font = "11px MS Sans Serif, Arial";
     ctx.fillText(row.label.slice(0, 12), x - 2, h - 18);
   });
-  drawLegend(ctx, data.variables, colors, w - 150, 14);
+  drawLegend(ctx, data.variables, colors, layout.legendX, 14);
 }
 
 function drawLineChart(ctx, data, w, h, fillArea) {
@@ -4013,8 +4731,9 @@ function drawLineChart(ctx, data, w, h, fillArea) {
   const max = Math.max(1, ...values);
   const left = 46;
   const top = 24;
-  const right = 24;
   const bottom = 42;
+  const layout = chartPlotLayout(w, left, top, bottom);
+  const right = layout.right;
   drawAxes(ctx, w, h, left, top, right, bottom);
   data.variables.forEach((variable, varIndex) => {
     const points = data.rows.map((row, rowIndex) => ({
@@ -4044,7 +4763,7 @@ function drawLineChart(ctx, data, w, h, fillArea) {
     ctx.font = "11px MS Sans Serif, Arial";
     ctx.fillText(row.label.slice(0, 10), x - 10, h - 18);
   });
-  drawLegend(ctx, data.variables, colors, w - 150, 14);
+  drawLegend(ctx, data.variables, colors, layout.legendX, 14);
 }
 
 function drawPieChart(ctx, data, w, h, doughnut) {
@@ -4119,6 +4838,16 @@ function renderGraphWidget(widget, resize = true) {
   const data = decodeDataSet(widget.dataset.graph, "graph");
   const canvas = widget.querySelector("canvas") || replaceGraphSvgWithCanvas(widget);
   const rect = canvas.getBoundingClientRect();
+  if (rect.width < 2 || rect.height < 2) {
+    if (widget.offsetParent && !canvas.dataset.renderRetry) {
+      canvas.dataset.renderRetry = "true";
+      requestAnimationFrame(() => {
+        delete canvas.dataset.renderRetry;
+        renderGraphWidget(widget, resize);
+      });
+    }
+    return;
+  }
   const scale = window.devicePixelRatio || 1;
   if (resize) {
     canvas.width = Math.max(1, Math.floor(rect.width * scale));
@@ -4157,6 +4886,8 @@ function ensureGraphInteraction(widget, canvas) {
     renderGraphWidget(widget, false);
   };
   const beginDrag = (event, id) => {
+    if (start) return false;
+    if (event.target.closest?.("button, input, select, textarea, [data-widget-action], [data-graph-rotate]")) return false;
     if (!is3DGraphData(decodeDataSet(widget.dataset.graph, "graph"))) return false;
     event.preventDefault();
     event.stopPropagation();
@@ -4215,7 +4946,10 @@ function ensureGraphInteraction(widget, canvas) {
   };
   canvas.addEventListener("pointerdown", begin, true);
   canvas.addEventListener("mousedown", mouseBegin, true);
+  widget.addEventListener("pointerdown", begin, true);
+  widget.addEventListener("mousedown", mouseBegin, true);
   canvas.title = "Drag to rotate 3D graph";
+  widget.title = "Drag to rotate 3D graph";
   canvas.style.touchAction = "none";
   canvas.addEventListener("dragstart", (event) => event.preventDefault());
   canvas.dataset.rotatable = "true";
@@ -4530,14 +5264,27 @@ function drawAxes(ctx, w, h, left, top, right, bottom) {
   ctx.stroke();
 }
 
+function chartPlotLayout(w, left = 46, top = 24, bottom = 40) {
+  const legendWidth = Math.min(150, Math.max(112, w * 0.24));
+  return { left, top, right: legendWidth + 22, bottom, legendX: w - legendWidth - 10, legendWidth };
+}
+
 function drawLegend(ctx, variables, colors, x, y) {
   ctx.font = "11px MS Sans Serif, Arial";
+  const width = Math.min(156, Math.max(96, ...variables.map((variable) => ctx.measureText(variable.name || "Series").width + 28)));
+  const height = variables.length * 16 + 6;
+  ctx.save();
+  ctx.fillStyle = "rgba(255, 255, 255, 0.94)";
+  ctx.fillRect(x - 4, y - 4, width, height);
+  ctx.strokeStyle = "#c0c0c0";
+  ctx.strokeRect(x - 4, y - 4, width, height);
   variables.forEach((variable, index) => {
     ctx.fillStyle = colors[index % colors.length];
     ctx.fillRect(x, y + index * 16, 10, 10);
     ctx.fillStyle = "#111";
     ctx.fillText(variable.name.slice(0, 18), x + 15, y + 9 + index * 16);
   });
+  ctx.restore();
 }
 
 function chartColors() {
@@ -5042,6 +5789,90 @@ function formatDate(value) {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function dateKey(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  const local = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, "0")}-${String(local.getDate()).padStart(2, "0")}`;
+}
+
+function parseDateKey(key) {
+  const [year, month, day] = String(key || dateKey(new Date())).split("-").map((part) => Number(part));
+  return new Date(year || new Date().getFullYear(), (month || 1) - 1, day || 1);
+}
+
+function startOfWeek(date) {
+  return addDays(date, -date.getDay());
+}
+
+function addDays(date, count) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + count);
+  return next;
+}
+
+function weekdayName(date) {
+  return date.toLocaleDateString(undefined, { weekday: "short" });
+}
+
+function formatShortDate(date) {
+  return date.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
+}
+
+function compareCalendarEvents(a, b) {
+  return `${a.occurrenceDate || a.date} ${a.time || "99:99"}`.localeCompare(`${b.occurrenceDate || b.date} ${b.time || "99:99"}`);
+}
+
+function calendarTypeColor(type) {
+  return {
+    reminder: "#2566a8",
+    event: "#008080",
+    study: "#347a3a",
+    deadline: "#b54848",
+    exam: "#7d4e9f"
+  }[type] || "#2566a8";
+}
+
+function calendarEventSubtitle(event) {
+  const bits = [capitalize(event.type || "event")];
+  if (event.time || event.endTime) bits.push(`${event.time || "Any time"}${event.endTime ? `-${event.endTime}` : ""}`);
+  if (event.repeat && event.repeat !== "none") bits.push(repeatLabel(event.repeat));
+  if (event.repeatUntil) bits.push(`until ${formatShortDate(parseDateKey(event.repeatUntil))}`);
+  if (event.done) bits.push("done");
+  return bits.join(" - ");
+}
+
+function formatCalendarEventDate(event) {
+  const label = formatShortDate(parseDateKey(event.occurrenceDate || event.date));
+  return event.time ? `${label} ${event.time}` : label;
+}
+
+function repeatLabel(value) {
+  return {
+    daily: "daily",
+    weekdays: "weekdays",
+    weekly: "weekly",
+    monthly: "monthly",
+    yearly: "yearly"
+  }[value] || "once";
+}
+
+function calendarEventOccursOn(event, key) {
+  if (event.date === key) return true;
+  if (!event.repeat || event.repeat === "none" || key < event.date) return false;
+  if (event.repeatUntil && key > event.repeatUntil) return false;
+  const start = parseDateKey(event.date);
+  const day = parseDateKey(key);
+  if (event.repeat === "daily") return true;
+  if (event.repeat === "weekdays") return day.getDay() >= 1 && day.getDay() <= 5;
+  if (event.repeat === "weekly") {
+    const days = event.repeatDays?.length ? event.repeatDays : [start.getDay()];
+    return days.includes(day.getDay());
+  }
+  if (event.repeat === "monthly") return day.getDate() === start.getDate();
+  if (event.repeat === "yearly") return day.getMonth() === start.getMonth() && day.getDate() === start.getDate();
+  return false;
+}
+
 function startClock() {
   const tick = () => {
     els.clockText.textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -5376,9 +6207,48 @@ function normalizeCitation(citation = {}) {
   };
 }
 
+function normalizeCalendarEvent(event = {}) {
+  const type = ["reminder", "event", "study", "deadline", "exam"].includes(event.type) ? event.type : "reminder";
+  const repeat = ["none", "daily", "weekdays", "weekly", "monthly", "yearly"].includes(event.repeat) ? event.repeat : "none";
+  const rawDate = String(event.date || "").trim();
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : dateKey(event.date || new Date());
+  const time = /^\d{2}:\d{2}$/.test(String(event.time || "")) ? String(event.time) : "";
+  const endTime = /^\d{2}:\d{2}$/.test(String(event.endTime || "")) ? String(event.endTime) : endTimeFromDuration(time, event.duration);
+  const repeatUntil = /^\d{4}-\d{2}-\d{2}$/.test(String(event.repeatUntil || "")) ? String(event.repeatUntil) : "";
+  const fallbackDay = parseDateKey(date).getDay();
+  const repeatDays = Array.isArray(event.repeatDays)
+    ? [...new Set(event.repeatDays.map((day) => Number(day)).filter((day) => day >= 0 && day <= 6))]
+    : [fallbackDay];
+  return {
+    id: event.id || uid(),
+    title: normalizeNotebookName(event.title || "Untitled event").slice(0, 120),
+    date,
+    time,
+    endTime,
+    type,
+    repeat,
+    repeatUntil: repeatUntil && repeatUntil >= date ? repeatUntil : "",
+    repeatDays,
+    color: normalizeHexColor(event.color) || calendarTypeColor(type),
+    notes: String(event.notes || "").trim().slice(0, 1200),
+    done: Boolean(event.done),
+    createdAt: event.createdAt || Date.now(),
+    updatedAt: event.updatedAt || Date.now()
+  };
+}
+
+function endTimeFromDuration(time, duration) {
+  if (!time) return "";
+  const [hour, minute] = time.split(":").map((part) => Number(part));
+  const date = new Date(2000, 0, 1, hour || 0, minute || 0);
+  date.setMinutes(date.getMinutes() + clamp(Number(duration) || 30, 5, 720));
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 window.addEventListener("resize", () => {
   setToolWidth(toolWidth());
   renderWidgets();
+  scheduleAutoPagination();
 });
 
 window.addEventListener("afterprint", () => {

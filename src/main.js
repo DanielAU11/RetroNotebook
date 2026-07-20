@@ -2,6 +2,7 @@ const { app, BrowserWindow, shell, ipcMain, net } = require("electron");
 const path = require("path");
 
 const windows = new Set();
+const appIconPath = path.join(__dirname, "..", "appicon.ico");
 
 ipcMain.handle("citation:fetchText", async (_event, rawUrl) => {
   const url = String(rawUrl || "").trim();
@@ -27,6 +28,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 680,
     title: "Retro Notebook Studio",
+    icon: appIconPath,
     backgroundColor: "#008080",
     show: false,
     webPreferences: {
@@ -49,6 +51,9 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === "win32") {
+    app.setAppUserModelId("com.retronotebook.studio");
+  }
   createWindow();
 
   app.on("activate", () => {
