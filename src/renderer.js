@@ -92,11 +92,14 @@ let calendarCursor = "";
 let selectedCalendarEventId = null;
 let reviewNotebookFilter = "";
 let reviewPageFilter = "";
+let activePdfId = null;
+let pendingPdfFolderId = null;
 
 document.addEventListener("DOMContentLoaded", () => {
   bindElements();
   state = loadState();
   activeId = state.activeId || state.pages[0]?.id;
+  activePdfId = state.activePdfId || null;
   selectedFolderId = activePage()?.folderId || state.folders[0]?.id;
   bindEvents();
   renderAll(true);
@@ -114,10 +117,25 @@ function bindElements() {
     "exportIconBtn",
     "printPageBtn",
     "pageList",
+    "binderAddPdfBtn",
+    "binderRenameBtn",
     "editorWindowTitle",
     "pageTitleInput",
     "tagInput",
     "editor",
+    "pdfWorkspace",
+    "pdfTitle",
+    "pdfRenameBtn",
+    "pdfOpenExternalBtn",
+    "pdfDeleteBtn",
+    "binderPdfPreview",
+    "binderPdfEmpty",
+    "pdfHighlightPageInput",
+    "pdfHighlightColorInput",
+    "pdfHighlightTextInput",
+    "pdfHighlightNoteInput",
+    "pdfAddHighlightBtn",
+    "pdfHighlightList",
     "styleSelect",
     "fontSelect",
     "fontSizeSelect",
@@ -143,7 +161,6 @@ function bindElements() {
     "linkIconBtn",
     "dividerIconBtn",
     "glossaryIconBtn",
-    "taskIconBtn",
     "makeCardIconBtn",
     "textColorBtn",
     "textColorInput",
@@ -272,6 +289,7 @@ function bindElements() {
     "dialogButtons",
     "imageFileInput",
     "citationPdfInput",
+    "binderPdfInput",
     "printPreviewOverlay",
     "printPreviewPages",
     "printPreviewSummary",
@@ -300,6 +318,13 @@ function bindEvents() {
   els.deletePageIconBtn.addEventListener("click", deleteActivePage);
   els.exportIconBtn.addEventListener("click", exportNotebook);
   els.printPageBtn.addEventListener("click", openPrintPreview);
+  els.binderAddPdfBtn.addEventListener("click", () => addPdfToFolder(selectedFolderId || firstFolderForNotebook(activeNotebookName())?.id));
+  els.binderRenameBtn.addEventListener("click", renameSelectedBinderItem);
+  els.binderPdfInput.addEventListener("change", importBinderPdf);
+  els.pdfRenameBtn.addEventListener("click", () => renamePdfById(activePdfId));
+  els.pdfOpenExternalBtn.addEventListener("click", openActivePdfExternal);
+  els.pdfDeleteBtn.addEventListener("click", () => deletePdfById(activePdfId));
+  els.pdfAddHighlightBtn.addEventListener("click", addPdfHighlight);
   els.searchInput.addEventListener("input", () => {
     renderBinder();
     renderSearchResults();
@@ -335,7 +360,7 @@ function bindEvents() {
   });
   els.calendarWeekBtn.addEventListener("click", () => setCalendarView("week"));
   els.calendarMonthBtn.addEventListener("click", () => setCalendarView("month"));
-  els.newCalendarEventBtn.addEventListener("click", newCalendarEventDraft);
+  els.newCalendarEventBtn.addEventListener("click", () => newCalendarEventDraft("", { clearDate: true }));
   els.saveCalendarEventBtn.addEventListener("click", saveCalendarEvent);
   els.deleteCalendarEventBtn.addEventListener("click", deleteCalendarEvent);
   els.calendarDoneBtn.addEventListener("click", toggleCalendarEventDone);
@@ -344,13 +369,9 @@ function bindEvents() {
     event.preventDefault();
     els.calendarRepeatDaysMenu.hidden = !els.calendarRepeatDaysMenu.hidden;
   });
-  els.calendarRepeatDaysMenu.querySelector("[data-repeat-days-apply]").addEventListener("click", () => {
-    els.calendarRepeatDaysMenu.hidden = true;
-    updateCalendarRepeatSummary();
-  });
+  els.calendarRepeatDaysMenu.querySelector("[data-repeat-days-all]").addEventListener("click", () => setCalendarRepeatDays([0, 1, 2, 3, 4, 5, 6]));
   els.calendarRepeatDaysMenu.querySelector("[data-repeat-days-clear]").addEventListener("click", () => {
     setCalendarRepeatDays([]);
-    updateCalendarRepeatSummary();
   });
   els.calendarRepeatDaysMenu.querySelectorAll("[data-repeat-day]").forEach((input) => {
     input.addEventListener("change", updateCalendarRepeatSummary);
@@ -431,7 +452,6 @@ function bindEvents() {
   els.linkIconBtn.addEventListener("click", insertHyperlink);
   els.dividerIconBtn.addEventListener("click", insertDivider);
   els.glossaryIconBtn.addEventListener("click", insertFullGlossary);
-  els.taskIconBtn.addEventListener("click", insertTasks);
   els.makeCardIconBtn.addEventListener("click", makeCardFromSelection);
   document.querySelectorAll("[data-template]").forEach((button) => {
     button.addEventListener("click", () => loadBuiltInTemplate(button.dataset.template));
@@ -930,8 +950,17 @@ function normalizeState(nextState, options = {}) {
         : []
     };
   });
+  nextState.pdfs = Array.isArray(nextState.pdfs)
+    ? nextState.pdfs.map(normalizeBinderPdf).map((pdf) => {
+        const folder = nextState.folders.find((candidate) => candidate.id === pdf.folderId)
+          || nextState.folders.find((candidate) => candidate.notebook === pdf.notebook)
+          || nextState.folders[0];
+        return { ...pdf, notebook: folder?.notebook || pdf.notebook, folderId: folder?.id || pdf.folderId };
+      }).filter((pdf) => pdf.name && pdf.folderId)
+    : [];
   if (!nextState.pages.length) return normalizeState(seedState());
   if (!nextState.pages.some((page) => page.id === nextState.activeId)) nextState.activeId = nextState.pages[0].id;
+  if (!nextState.pdfs.some((pdf) => pdf.id === nextState.activePdfId)) nextState.activePdfId = "";
 
   nextState.latexSnippets = Array.isArray(nextState.latexSnippets)
     ? nextState.latexSnippets.map((snippet, index) =>
@@ -1033,6 +1062,7 @@ function seedState() {
     notebooks: ["Tutorial"],
     notebookColors: { Tutorial: "#2566a8" },
     folders: [{ id: tutorialFolder, notebook: "Tutorial", name: "Start Here", collapsed: false }],
+    pdfs: [],
     customTemplates: defaultCustomTemplates(),
     smartPhrases: defaultSmartPhrases(),
     tags: [
@@ -1110,6 +1140,7 @@ function seedState() {
 
 function saveState() {
   state.activeId = activeId;
+  state.activePdfId = activePdfId || "";
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
@@ -1127,7 +1158,8 @@ function renderAll(loadEditor = false) {
   renderNotebookOptions();
   renderBinder();
   renderTags();
-  if (loadEditor) loadActivePageIntoEditor();
+  if (activePdfId) renderPdfWorkspace();
+  else if (loadEditor) loadActivePageIntoEditor();
   renderDashboard();
   renderCalendar();
   renderStats();
@@ -1146,8 +1178,11 @@ function renderAll(loadEditor = false) {
 }
 
 function renderChrome() {
-  const page = activePage();
-  if (!page) return;
+  const pdf = activePdf();
+  if (pdf) {
+    els.editorWindowTitle.textContent = "PDF";
+    return;
+  }
   els.editorWindowTitle.textContent = "Page";
 }
 
@@ -1180,15 +1215,25 @@ function renderBinder() {
         const haystack = [page.title, page.tags.join(" "), page.plain].join(" ").toLowerCase();
         return !query || haystack.includes(query);
       });
+    const pdfs = state.pdfs
+      .filter((pdf) => pdf.folderId === folder.id)
+      .filter((pdf) => {
+        const haystack = [pdf.name, pdf.highlights.map((highlight) => `${highlight.text} ${highlight.note}`).join(" ")].join(" ").toLowerCase();
+        return !query || haystack.includes(query);
+      });
 
     const title = document.createElement("div");
     title.className = "binder-folder-title";
-    title.innerHTML = `<span class="icon95 ${folder.collapsed ? "Folder_16x16_4" : "FolderOpen_16x16_4"}"></span><span class="favorite-slot">${folder.favorite ? "<span class=\"icon95 Star_16x16_4\"></span>" : ""}</span><span>${escapeHtml(folder.name)}</span><small>${pages.length}</small>`;
+    title.innerHTML = `<span class="icon95 ${folder.collapsed ? "Folder_16x16_4" : "FolderOpen_16x16_4"}"></span><span class="favorite-slot">${folder.favorite ? "<span class=\"icon95 Star_16x16_4\"></span>" : ""}</span><span>${escapeHtml(folder.name)}</span><small>${pages.length + pdfs.length}</small>`;
     title.addEventListener("click", () => {
       selectedFolderId = folder.id;
       folder.collapsed = !folder.collapsed;
       saveState();
       renderBinder();
+    });
+    title.addEventListener("dblclick", (event) => {
+      event.stopPropagation();
+      renameFolderById(folder.id);
     });
     title.addEventListener("contextmenu", (event) => showBinderContextMenu(event, "folder", folder.id));
     folderItem.appendChild(title);
@@ -1197,6 +1242,7 @@ function renderBinder() {
       const list = document.createElement("ul");
       list.className = "binder-pages";
       pages.forEach((page) => list.appendChild(renderPageItem(page)));
+      pdfs.forEach((pdf) => list.appendChild(renderPdfItem(pdf)));
       folderItem.appendChild(list);
     }
     els.pageList.appendChild(folderItem);
@@ -1206,7 +1252,7 @@ function renderBinder() {
 
 function renderPageItem(page) {
   const item = document.createElement("li");
-  item.className = "page-item" + (page.id === activeId ? " active" : "");
+  item.className = "page-item" + (!activePdfId && page.id === activeId ? " active" : "");
   item.title = page.goal || "Open page";
   item.innerHTML = `
     <span class="icon95 FileText_16x16_4"></span>
@@ -1221,7 +1267,32 @@ function renderPageItem(page) {
     selectPage(page.id);
     switchMainTab("write");
   });
+  item.addEventListener("dblclick", (event) => {
+    event.stopPropagation();
+    renamePageById(page.id);
+  });
   item.addEventListener("contextmenu", (event) => showBinderContextMenu(event, "page", page.id));
+  return item;
+}
+
+function renderPdfItem(pdf) {
+  const item = document.createElement("li");
+  item.className = "page-item pdf-item" + (pdf.id === activePdfId ? " active" : "");
+  item.title = "Open PDF";
+  item.innerHTML = `
+    <span class="icon95 FileText_16x16_4"></span>
+    <span class="favorite-slot">${pdf.favorite ? "<span class=\"icon95 Star_16x16_4\"></span>" : ""}</span>
+    <span>
+      <span class="page-title">${escapeHtml(pdf.name)}</span>
+      <span class="page-subtitle">${pdf.highlights.length} highlights - PDF</span>
+    </span>
+  `;
+  item.addEventListener("click", () => selectPdf(pdf.id));
+  item.addEventListener("dblclick", (event) => {
+    event.stopPropagation();
+    renamePdfById(pdf.id);
+  });
+  item.addEventListener("contextmenu", (event) => showBinderContextMenu(event, "pdf", pdf.id));
   return item;
 }
 
@@ -1252,6 +1323,100 @@ function renderTags() {
   });
 }
 
+async function renderPdfWorkspace() {
+  const pdf = activePdf();
+  const pdfMode = Boolean(pdf);
+  els.pageTitleInput.parentElement.hidden = pdfMode;
+  els.editor.hidden = pdfMode;
+  els.pdfWorkspace.hidden = !pdfMode;
+  if (!pdf) return;
+  els.editorWindowTitle.textContent = "PDF";
+  els.pdfTitle.textContent = pdf.name;
+  els.binderPdfEmpty.textContent = `Loading "${pdf.name}"...`;
+  els.binderPdfPreview.src = "about:blank";
+  const blob = await getPdfBlob(pdf.pdfBlobId);
+  if (activePdfId !== pdf.id) return;
+  if (!blob) {
+    els.binderPdfEmpty.textContent = `PDF file missing for "${pdf.name}". Add it again from the binder.`;
+    els.binderPdfPreview.parentElement.classList.remove("has-pdf");
+  } else {
+    if (pdfObjectUrls.has(pdf.pdfBlobId)) URL.revokeObjectURL(pdfObjectUrls.get(pdf.pdfBlobId));
+    const objectUrl = URL.createObjectURL(blob);
+    pdfObjectUrls.set(pdf.pdfBlobId, objectUrl);
+    els.binderPdfPreview.src = objectUrl;
+    els.binderPdfPreview.parentElement.classList.add("has-pdf");
+  }
+  renderPdfHighlights(pdf);
+}
+
+function showEditorWorkspace() {
+  els.pageTitleInput.parentElement.hidden = false;
+  els.editor.hidden = false;
+  els.pdfWorkspace.hidden = true;
+}
+
+function renderPdfHighlights(pdf = activePdf()) {
+  if (!pdf) return;
+  els.pdfHighlightList.innerHTML = "";
+  if (!pdf.highlights.length) {
+    els.pdfHighlightList.innerHTML = "<p class=\"fine-print\">No PDF highlights yet.</p>";
+    return;
+  }
+  pdf.highlights
+    .slice()
+    .sort((a, b) => (a.page || 1) - (b.page || 1) || a.createdAt - b.createdAt)
+    .forEach((highlight) => {
+      const row = document.createElement("div");
+      row.className = "pdf-highlight-row";
+      row.dataset.highlightRow = highlight.id;
+      row.style.setProperty("--highlight-color", highlight.color || "#fff36b");
+      row.innerHTML = `
+        <strong>Page ${highlight.page || 1}: ${escapeHtml(highlight.text || "Highlight")}</strong>
+        <small>${escapeHtml(highlight.note || "No note")}</small>
+        <button data-delete-pdf-highlight="${highlight.id}">Delete</button>
+      `;
+      row.querySelector("[data-delete-pdf-highlight]").addEventListener("click", () => deletePdfHighlight(highlight.id));
+      els.pdfHighlightList.appendChild(row);
+    });
+}
+
+function addPdfHighlight() {
+  const pdf = activePdf();
+  if (!pdf) return;
+  const text = els.pdfHighlightTextInput.value.trim();
+  const note = els.pdfHighlightNoteInput.value.trim();
+  if (!text && !note) {
+    setStatus("Add highlighted text or a note first.");
+    return;
+  }
+  pdf.highlights.push({
+    id: uid(),
+    page: Math.max(1, Number(els.pdfHighlightPageInput.value) || 1),
+    color: normalizeHexColor(els.pdfHighlightColorInput.value) || "#fff36b",
+    text,
+    note,
+    createdAt: Date.now()
+  });
+  pdf.updatedAt = Date.now();
+  els.pdfHighlightTextInput.value = "";
+  els.pdfHighlightNoteInput.value = "";
+  saveState();
+  renderPdfHighlights(pdf);
+  renderBinder();
+  setStatus("PDF highlight saved.");
+}
+
+function deletePdfHighlight(id) {
+  const pdf = activePdf();
+  if (!pdf) return;
+  pdf.highlights = pdf.highlights.filter((highlight) => highlight.id !== id);
+  pdf.updatedAt = Date.now();
+  saveState();
+  renderPdfHighlights(pdf);
+  renderBinder();
+  setStatus("PDF highlight deleted.");
+}
+
 function commitTagInput() {
   const page = activePage();
   if (!page) return;
@@ -1278,7 +1443,10 @@ function renderSearchResults() {
     els.searchResults.innerHTML = "";
     return;
   }
-  const matches = state.pages.map((page) => pageSearchMatch(page, query)).filter(Boolean).slice(0, 10);
+  const matches = [
+    ...state.pages.map((page) => pageSearchMatch(page, query)).filter(Boolean),
+    ...state.pdfs.map((pdf) => pdfSearchMatch(pdf, query)).filter(Boolean)
+  ].slice(0, 12);
   els.searchResults.hidden = false;
   if (!matches.length) {
     els.searchResults.innerHTML = "<p class=\"fine-print\">No matches found.</p>";
@@ -1289,15 +1457,20 @@ function renderSearchResults() {
     const button = document.createElement("button");
     button.type = "button";
     button.innerHTML = `
-      <strong>${escapeHtml(match.page.title)}</strong>
-      <small>${escapeHtml(match.page.notebook)} - ${escapeHtml(match.reason)}</small>
+      <strong>${escapeHtml(match.title)}</strong>
+      <small>${escapeHtml(match.notebook)} - ${escapeHtml(match.reason)}</small>
       <span>${escapeHtml(match.snippet)}</span>
     `;
     button.addEventListener("click", () => {
-      selectPage(match.page.id);
+      if (match.type === "pdf") {
+        selectPdf(match.id);
+        setStatus(`Found "${query}" in PDF "${match.title}".`);
+        return;
+      }
+      selectPage(match.id);
       switchMainTab("write");
       highlightFindTerm(query);
-      setStatus(`Found "${query}" in "${match.page.title}".`);
+      setStatus(`Found "${query}" in "${match.title}".`);
     });
     els.searchResults.appendChild(button);
   });
@@ -1313,7 +1486,32 @@ function pageSearchMatch(page, query) {
   const found = fields.find((field) => field.text.toLowerCase().includes(needle));
   if (!found) return null;
   return {
-    page,
+    type: "page",
+    id: page.id,
+    title: page.title,
+    notebook: page.notebook,
+    reason: found.reason,
+    snippet: snippetAround(found.text, query)
+  };
+}
+
+function pdfSearchMatch(pdf, query) {
+  const needle = query.toLowerCase();
+  const highlightText = (pdf.highlights || [])
+    .map((highlight) => [highlight.text, highlight.note].filter(Boolean).join(" - "))
+    .filter(Boolean)
+    .join(" ");
+  const fields = [
+    { reason: "PDF name", text: pdf.name },
+    { reason: "PDF highlights", text: highlightText }
+  ];
+  const found = fields.find((field) => String(field.text || "").toLowerCase().includes(needle));
+  if (!found) return null;
+  return {
+    type: "pdf",
+    id: pdf.id,
+    title: pdf.name,
+    notebook: pdf.notebook,
     reason: found.reason,
     snippet: snippetAround(found.text, query)
   };
@@ -1468,6 +1666,7 @@ function renderDashboard() {
 function loadActivePageIntoEditor() {
   const page = activePage();
   if (!page) return;
+  showEditorWorkspace();
   els.editor.dataset.pageId = page.id;
   els.pageTitleInput.value = page.title;
   els.tagInput.value = page.tags.join(", ");
@@ -1628,16 +1827,17 @@ function moveCalendar(direction) {
   renderCalendar();
 }
 
-function newCalendarEventDraft(date = calendarCursor || dateKey(new Date())) {
+function newCalendarEventDraft(date = "", options = {}) {
   selectedCalendarEventId = null;
+  const draftDate = options.clearDate ? "" : (date || calendarCursor || dateKey(new Date()));
   els.calendarTitleInput.value = "";
-  els.calendarDateInput.value = date;
-  els.calendarTimeInput.value = "09:00";
-  els.calendarEndTimeInput.value = "09:30";
+  els.calendarDateInput.value = draftDate;
+  els.calendarTimeInput.value = "";
+  els.calendarEndTimeInput.value = "";
   els.calendarTypeSelect.value = "reminder";
   els.calendarRepeatSelect.value = "none";
   els.calendarRepeatUntilInput.value = "";
-  setCalendarRepeatDays([parseDateKey(date).getDay()]);
+  setCalendarRepeatDays([]);
   updateCalendarRepeatControls();
   els.calendarColorInput.value = calendarTypeColor("reminder");
   els.calendarNotesInput.value = "";
@@ -1667,9 +1867,14 @@ function loadCalendarEvent(id) {
 
 function saveCalendarEvent() {
   const title = els.calendarTitleInput.value.trim();
-  const date = els.calendarDateInput.value || dateKey(new Date());
+  const date = els.calendarDateInput.value;
   if (!title) {
     setStatus("Calendar event needs a title.");
+    return;
+  }
+  if (!date) {
+    setStatus("Calendar event needs a date.");
+    els.calendarDateInput.focus();
     return;
   }
   const now = Date.now();
@@ -1677,6 +1882,11 @@ function saveCalendarEvent() {
   const repeat = els.calendarRepeatSelect.value;
   const repeatDays = selectedCalendarRepeatDays();
   const repeatUntil = els.calendarRepeatUntilInput.value;
+  if (repeat === "weekly" && !repeatDays.length) {
+    setStatus("Choose at least one repeat day for weekly events.");
+    els.calendarRepeatDaysBtn.focus();
+    return;
+  }
   if (needsRepeatEndDate(repeat, repeatDays) && !repeatUntil) {
     setStatus("Choose a repeat-until date for events that happen multiple times per week.");
     els.calendarRepeatUntilInput.focus();
@@ -1764,16 +1974,17 @@ function setCalendarRepeatDays(days = []) {
 
 function updateCalendarRepeatControls() {
   const repeat = els.calendarRepeatSelect.value;
-  const date = els.calendarDateInput.value || calendarCursor || dateKey(new Date());
   if (repeat === "none") {
     els.calendarRepeatDaysBtn.disabled = true;
+    els.calendarRepeatDaysMenu.hidden = true;
     els.calendarRepeatUntilInput.disabled = true;
     els.calendarRepeatUntilInput.value = "";
   } else {
     els.calendarRepeatDaysBtn.disabled = repeat !== "weekly";
+    if (repeat !== "weekly") els.calendarRepeatDaysMenu.hidden = true;
     els.calendarRepeatUntilInput.disabled = false;
     if (repeat === "weekdays") setCalendarRepeatDays([1, 2, 3, 4, 5]);
-    if (repeat === "weekly" && !selectedCalendarRepeatDays().length) setCalendarRepeatDays([parseDateKey(date).getDay()]);
+    if (["daily", "monthly", "yearly"].includes(repeat)) setCalendarRepeatDays([]);
   }
   updateCalendarRepeatSummary();
 }
@@ -1970,6 +2181,8 @@ function switchMainTab(name) {
 function selectNotebook(notebook) {
   syncEditorNow();
   state.activeNotebook = notebook;
+  activePdfId = null;
+  state.activePdfId = "";
   reviewNotebookFilter = notebook;
   reviewPageFilter = "";
   const folder = firstFolderForNotebook(notebook);
@@ -1982,12 +2195,27 @@ function selectNotebook(notebook) {
 
 function selectPage(id) {
   syncEditorNow();
+  activePdfId = null;
   activeId = id;
+  state.activePdfId = "";
   state.activeNotebook = activePage()?.notebook || state.activeNotebook;
   reviewNotebookFilter = state.activeNotebook;
   selectedFolderId = activePage()?.folderId || selectedFolderId;
   saveState();
   renderAll(true);
+}
+
+function selectPdf(id) {
+  syncEditorNow();
+  const pdf = state.pdfs.find((candidate) => candidate.id === id);
+  if (!pdf) return;
+  activePdfId = id;
+  state.activePdfId = id;
+  state.activeNotebook = pdf.notebook;
+  selectedFolderId = pdf.folderId;
+  saveState();
+  renderAll(false);
+  renderPdfWorkspace();
 }
 
 async function createFolder() {
@@ -2003,8 +2231,92 @@ async function createFolder() {
   setStatus(`Folder "${name}" created.`);
 }
 
+async function renameFolderById(id) {
+  const folder = state.folders.find((candidate) => candidate.id === id);
+  if (!folder) return;
+  const name = normalizeNotebookName(await retroPrompt("Rename Folder", "Folder name.", folder.name));
+  if (!name || name === folder.name) return;
+  folder.name = name;
+  saveState();
+  renderBinder();
+  setStatus(`Folder renamed to "${name}".`);
+}
+
+async function renamePageById(id) {
+  const page = state.pages.find((candidate) => candidate.id === id);
+  if (!page) return;
+  const title = normalizeNotebookName(await retroPrompt("Rename Page", "Page title.", page.title));
+  if (!title || title === page.title) return;
+  page.title = title;
+  page.updatedAt = Date.now();
+  if (page.id === activeId && !activePdfId) els.pageTitleInput.value = title;
+  saveState();
+  renderAll(false);
+  setStatus(`Page renamed to "${title}".`);
+}
+
+async function renamePdfById(id) {
+  const pdf = state.pdfs.find((candidate) => candidate.id === id);
+  if (!pdf) return;
+  const name = normalizeNotebookName(await retroPrompt("Rename PDF", "PDF name.", pdf.name));
+  if (!name || name === pdf.name) return;
+  pdf.name = name;
+  pdf.updatedAt = Date.now();
+  saveState();
+  renderBinder();
+  renderPdfWorkspace();
+  setStatus(`PDF renamed to "${name}".`);
+}
+
+function renameSelectedBinderItem() {
+  if (activePdfId) return renamePdfById(activePdfId);
+  return renamePageById(activeId);
+}
+
+function addPdfToFolder(folderId) {
+  const folder = state.folders.find((candidate) => candidate.id === folderId) || firstFolderForNotebook(activeNotebookName());
+  pendingPdfFolderId = folder?.id || null;
+  if (!pendingPdfFolderId) return;
+  els.binderPdfInput.value = "";
+  els.binderPdfInput.click();
+}
+
+async function importBinderPdf() {
+  const file = els.binderPdfInput.files?.[0];
+  if (!file) return;
+  if (file.type !== "application/pdf" && !/\.pdf$/i.test(file.name)) {
+    setStatus("Choose a PDF file.");
+    return;
+  }
+  const folder = state.folders.find((candidate) => candidate.id === pendingPdfFolderId) || firstFolderForNotebook(activeNotebookName());
+  const id = uid();
+  const pdf = normalizeBinderPdf({
+    id,
+    name: file.name.replace(/\.pdf$/i, ""),
+    notebook: folder.notebook,
+    folderId: folder.id,
+    pdfBlobId: id,
+    highlights: [],
+    favorite: false,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  });
+  try {
+    await putPdfBlob(pdf.pdfBlobId, file);
+  } catch {
+    setStatus("PDF storage failed.");
+    return;
+  }
+  state.pdfs.unshift(pdf);
+  pendingPdfFolderId = null;
+  selectPdf(pdf.id);
+  setStatus(`PDF "${pdf.name}" added.`);
+}
+
 function createPage() {
   syncEditorNow();
+  activePdfId = null;
+  state.activePdfId = "";
   const notebook = activeNotebookName();
   const folder = state.folders.find((candidate) => candidate.id === selectedFolderId && candidate.notebook === notebook) || firstFolderForNotebook(notebook);
   const page = makeBlankPage(notebook, folder?.id);
@@ -2033,6 +2345,10 @@ function duplicateActivePage() {
 }
 
 async function deleteActivePage() {
+  if (activePdfId) {
+    await deletePdfById(activePdfId);
+    return;
+  }
   await deletePageById(activePage()?.id);
 }
 
@@ -2047,6 +2363,8 @@ async function deletePageById(id) {
   if (!ok) return;
   state.pages = state.pages.filter((candidate) => candidate.id !== page.id);
   if (activeId === page.id) activeId = state.pages[0].id;
+  activePdfId = null;
+  state.activePdfId = "";
   state.activeNotebook = activePage()?.notebook || state.activeNotebook;
   saveState();
   renderAll(true);
@@ -2056,12 +2374,18 @@ async function deleteFolderById(id) {
   const folder = state.folders.find((candidate) => candidate.id === id);
   if (!folder) return;
   const pages = state.pages.filter((page) => page.folderId === id);
-  const ok = await retroConfirm("Delete Folder", `Delete folder "${folder.name}" and ${pages.length} page${pages.length === 1 ? "" : "s"}?`, "warning");
+  const pdfs = state.pdfs.filter((pdf) => pdf.folderId === id);
+  const ok = await retroConfirm("Delete Folder", `Delete folder "${folder.name}" and ${pages.length} page${pages.length === 1 ? "" : "s"} plus ${pdfs.length} PDF${pdfs.length === 1 ? "" : "s"}?`, "warning");
   if (!ok) return;
   state.pages = state.pages.filter((page) => page.folderId !== id);
+  state.pdfs = state.pdfs.filter((pdf) => pdf.folderId !== id);
   state.folders = state.folders.filter((candidate) => candidate.id !== id);
   if (!state.folders.some((candidate) => candidate.notebook === folder.notebook)) {
     state.folders.push({ id: uid(), notebook: folder.notebook, name: "General", collapsed: false, favorite: false });
+  }
+  if (activePdfId && !state.pdfs.some((pdf) => pdf.id === activePdfId)) {
+    activePdfId = null;
+    state.activePdfId = "";
   }
   if (!state.pages.length) {
     const fallbackFolder = firstFolderForNotebook(folder.notebook) || state.folders[0];
@@ -2075,6 +2399,31 @@ async function deleteFolderById(id) {
   saveState();
   renderAll(true);
   setStatus(`Folder "${folder.name}" deleted.`);
+}
+
+async function deletePdfById(id) {
+  const pdf = state.pdfs.find((candidate) => candidate.id === id);
+  if (!pdf) return;
+  const ok = await retroConfirm("Delete PDF", `Remove "${pdf.name}" from this binder?`, "warning");
+  if (!ok) return;
+  state.pdfs = state.pdfs.filter((candidate) => candidate.id !== id);
+  if (activePdfId === id) {
+    activePdfId = null;
+    state.activePdfId = "";
+  }
+  saveState();
+  renderAll(true);
+  setStatus(`PDF "${pdf.name}" removed.`);
+}
+
+function openActivePdfExternal() {
+  const pdf = activePdf();
+  if (!pdf) return;
+  const src = pdfObjectUrls.get(pdf.pdfBlobId) || els.binderPdfPreview.src;
+  if (src && src !== "about:blank") {
+    window.open(src, "_blank", "noopener");
+    setStatus(`Opened "${pdf.name}" in a separate viewer.`);
+  }
 }
 
 function exec(command, value = null) {
@@ -2391,10 +2740,6 @@ async function insertHyperlink() {
 function insertDivider() {
   insertHtml('<hr class="page-divider" /><p></p>');
   setStatus("Divider inserted.");
-}
-
-function insertTasks() {
-  insertHtml('<ul class="checklist-list"><li><input type="checkbox" contenteditable="false" /> <br></li><li><input type="checkbox" contenteditable="false" /> <br></li><li><input type="checkbox" contenteditable="false" /> <br></li></ul><p><br></p>');
 }
 
 function insertTemplate(type) {
@@ -4123,7 +4468,6 @@ function updatePhraseMenu() {
 
 function handleEditorKeydown(event) {
   if (["Backspace", "Delete", "Enter", " "].includes(event.key)) removeAutoPageBreaks();
-  if ((event.key === "Backspace" || event.key === "Delete") && handleChecklistDeleteKey(event)) return;
   if (els.phraseMenu.hidden) return;
   if (event.key === "Escape") {
     hidePhraseMenu();
@@ -4136,39 +4480,6 @@ function handleEditorKeydown(event) {
       first.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     }
   }
-}
-
-function handleChecklistDeleteKey(event) {
-  const selection = window.getSelection();
-  if (!selection.rangeCount || !selection.isCollapsed) return false;
-  const anchor = selection.anchorNode?.nodeType === Node.TEXT_NODE ? selection.anchorNode.parentElement : selection.anchorNode;
-  const item = anchor?.closest?.(".checklist-list li");
-  if (!item || !els.editor.contains(item)) return false;
-  const text = item.textContent.replace(/\u00a0/g, " ").trim();
-  if (text) return false;
-  const list = item.closest(".checklist-list");
-  event.preventDefault();
-  const nextFocus = item.nextElementSibling || item.previousElementSibling;
-  item.remove();
-  if (!list.children.length) {
-    const paragraph = document.createElement("p");
-    paragraph.innerHTML = "<br>";
-    list.replaceWith(paragraph);
-    placeCaretAtEnd(paragraph);
-  } else if (nextFocus) {
-    placeCaretAtEnd(nextFocus);
-  }
-  syncEditorNow();
-  return true;
-}
-
-function placeCaretAtEnd(node) {
-  const range = document.createRange();
-  range.selectNodeContents(node);
-  range.collapse(false);
-  const selection = window.getSelection();
-  selection.removeAllRanges();
-  selection.addRange(range);
 }
 
 function slashContext() {
@@ -4256,15 +4567,17 @@ function showBinderContextMenu(event, type, id) {
   event.preventDefault();
   event.stopPropagation();
   binderContext = { type, id };
-  const target = type === "page" ? state.pages.find((page) => page.id === id) : state.folders.find((folder) => folder.id === id);
+  const target = binderTarget(type, id);
   const favoriteButton = els.binderContextMenu.querySelector("[data-binder-action='favorite']");
   if (favoriteButton) favoriteButton.textContent = target?.favorite ? "Unfavorite" : "Favorite";
   const newPageButton = els.binderContextMenu.querySelector("[data-binder-action='newPage']");
   if (newPageButton) newPageButton.hidden = type !== "folder";
+  const addPdfButton = els.binderContextMenu.querySelector("[data-binder-action='addPdf']");
+  if (addPdfButton) addPdfButton.hidden = type !== "folder";
   els.binderContextMenu.hidden = false;
   const { innerWidth, innerHeight } = window;
   els.binderContextMenu.style.left = `${Math.min(event.clientX, innerWidth - 150)}px`;
-  els.binderContextMenu.style.top = `${Math.min(event.clientY, innerHeight - 112)}px`;
+  els.binderContextMenu.style.top = `${Math.min(event.clientY, innerHeight - 170)}px`;
 }
 
 function hideBinderContextMenu() {
@@ -4277,19 +4590,32 @@ async function runBinderContextAction(action) {
   const { type, id } = binderContext;
   hideBinderContextMenu();
   if (action === "favorite") {
-    const item = type === "page" ? state.pages.find((page) => page.id === id) : state.folders.find((folder) => folder.id === id);
+    const item = binderTarget(type, id);
     if (!item) return;
     item.favorite = !item.favorite;
     saveState();
     renderBinder();
     setStatus(item.favorite ? "Added to favorites." : "Removed from favorites.");
+  } else if (action === "rename") {
+    if (type === "folder") await renameFolderById(id);
+    else if (type === "pdf") await renamePdfById(id);
+    else await renamePageById(id);
   } else if (action === "newPage" && type === "folder") {
     selectedFolderId = id;
     createPage();
+  } else if (action === "addPdf" && type === "folder") {
+    addPdfToFolder(id);
   } else if (action === "delete") {
     if (type === "page") await deletePageById(id);
+    else if (type === "pdf") await deletePdfById(id);
     else await deleteFolderById(id);
   }
+}
+
+function binderTarget(type, id) {
+  if (type === "page") return state.pages.find((page) => page.id === id);
+  if (type === "pdf") return state.pdfs.find((pdf) => pdf.id === id);
+  return state.folders.find((folder) => folder.id === id);
 }
 
 async function runContextAction(action) {
@@ -4351,6 +4677,10 @@ function notebookExists(name) {
 
 function activePage() {
   return state.pages.find((page) => page.id === activeId) || state.pages[0];
+}
+
+function activePdf() {
+  return state.pdfs?.find((pdf) => pdf.id === activePdfId) || null;
 }
 
 function makeBlankPage(notebook, folderId) {
@@ -5865,8 +6195,7 @@ function calendarEventOccursOn(event, key) {
   if (event.repeat === "daily") return true;
   if (event.repeat === "weekdays") return day.getDay() >= 1 && day.getDay() <= 5;
   if (event.repeat === "weekly") {
-    const days = event.repeatDays?.length ? event.repeatDays : [start.getDay()];
-    return days.includes(day.getDay());
+    return Boolean(event.repeatDays?.length) && event.repeatDays.includes(day.getDay());
   }
   if (event.repeat === "monthly") return day.getDate() === start.getDate();
   if (event.repeat === "yearly") return day.getMonth() === start.getMonth() && day.getDate() === start.getDate();
@@ -6204,6 +6533,33 @@ function normalizeCitation(citation = {}) {
     pdfName: normalizeNotebookName(citation.pdfName).slice(0, 220),
     pdfDataUrl: String(citation.pdfDataUrl || ""),
     pdfBlobId: String(citation.pdfBlobId || "")
+  };
+}
+
+function normalizeBinderPdf(pdf = {}) {
+  return {
+    id: pdf.id || uid(),
+    name: normalizeNotebookName(pdf.name || pdf.pdfName || "Untitled PDF").slice(0, 180),
+    notebook: normalizeNotebookName(pdf.notebook || "Tutorial"),
+    folderId: String(pdf.folderId || ""),
+    pdfBlobId: String(pdf.pdfBlobId || pdf.id || uid()),
+    favorite: Boolean(pdf.favorite),
+    highlights: Array.isArray(pdf.highlights)
+      ? pdf.highlights.map(normalizePdfHighlight).filter((highlight) => highlight.text || highlight.note)
+      : [],
+    createdAt: pdf.createdAt || Date.now(),
+    updatedAt: pdf.updatedAt || Date.now()
+  };
+}
+
+function normalizePdfHighlight(highlight = {}) {
+  return {
+    id: highlight.id || uid(),
+    page: Math.max(1, Number(highlight.page) || 1),
+    color: normalizeHexColor(highlight.color) || "#fff36b",
+    text: String(highlight.text || "").trim().slice(0, 500),
+    note: String(highlight.note || "").trim().slice(0, 1200),
+    createdAt: highlight.createdAt || Date.now()
   };
 }
 

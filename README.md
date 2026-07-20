@@ -7,7 +7,7 @@ The interface uses [98.css](https://unpkg.com/98.css) with Windows 98-style icon
 ## Features
 
 - Notebook binder with colored notebooks, folders, pages, favorites, tags, and page search.
-- Rich document editor with headings, glossary titles, quotes, fonts, text color, highlight color, alignment, lists, checklist items, line spacing, dividers, superscript, and subscript.
+- Rich document editor with headings, glossary titles, quotes, fonts, text color, highlight color, alignment, bulleted and numbered lists, line spacing, dividers, superscript, and subscript.
 - Per-page paper sizes, including Letter, A4, Legal, Executive, and Index Card.
 - In-app print preview with paper-sized pages, clean print output, and embedded chart/graph controls removed.
 - Headers, footers, and page numbers with top-left, top-middle, top-right, bottom-left, bottom-middle, and bottom-right placement.

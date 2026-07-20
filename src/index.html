@@ -109,7 +109,6 @@
             <option value="1.5">1.5</option>
             <option value="2">2.0</option>
           </select>
-          <button id="taskIconBtn" class="tool-button" title="Checklist"><span class="pixel-icon icon-check"></span></button>
           <span class="toolbar-separator"></span>
           <button id="dictationBtn" class="tool-button" title="Dictation"><span class="icon95 Mic_16x16_4"></span></button>
           <button id="speakTextBtn" class="tool-button" title="Read selected text"><span class="icon95 MediaAudio_16x16_4"></span></button>
@@ -151,6 +150,10 @@
               <button id="newTagBtn">New Tag</button>
               <button id="insertTagListBtn">Tag List</button>
             </div>
+            <div class="binder-action-strip">
+              <button id="binderAddPdfBtn"><span class="icon95 FileText_16x16_4"></span> PDF</button>
+              <button id="binderRenameBtn">Rename</button>
+            </div>
             <ul class="binder-tree" id="pageList"></ul>
           </div>
         </aside>
@@ -165,6 +168,35 @@
               <input id="tagInput" placeholder="tags: math, biology, exam-1" />
             </div>
             <article id="editor" class="editor-page" contenteditable="true" spellcheck="true"></article>
+            <section id="pdfWorkspace" class="pdf-workspace" hidden>
+              <div class="pdf-toolbar">
+                <strong id="pdfTitle">PDF</strong>
+                <button id="pdfRenameBtn">Rename</button>
+                <button id="pdfOpenExternalBtn">Open</button>
+                <button id="pdfDeleteBtn">Delete</button>
+              </div>
+              <div class="pdf-preview-main">
+                <iframe id="binderPdfPreview" title="Binder PDF preview"></iframe>
+                <div id="binderPdfEmpty" class="pdf-preview-empty">Select or add a PDF in the binder.</div>
+              </div>
+              <fieldset class="pdf-highlight-panel">
+                <legend>Highlights And Notes</legend>
+                <div class="pdf-highlight-form">
+                  <label for="pdfHighlightPageInput">Page</label>
+                  <input id="pdfHighlightPageInput" type="number" min="1" value="1" />
+                  <label for="pdfHighlightColorInput">Color</label>
+                  <input id="pdfHighlightColorInput" type="color" value="#fff36b" />
+                  <label for="pdfHighlightTextInput">Text</label>
+                  <input id="pdfHighlightTextInput" placeholder="Highlighted phrase, section, or figure..." />
+                  <label for="pdfHighlightNoteInput">Note</label>
+                  <textarea id="pdfHighlightNoteInput" rows="2" placeholder="Why this matters..."></textarea>
+                </div>
+                <div class="button-row right">
+                  <button id="pdfAddHighlightBtn">Add Highlight</button>
+                </div>
+                <div id="pdfHighlightList" class="pdf-highlight-list"></div>
+              </fieldset>
+            </section>
           </div>
         </section>
 
@@ -273,7 +305,7 @@
                   </select>
                   <label>Repeat days</label>
                   <div class="calendar-repeat-menu-wrap">
-                    <button id="calendarRepeatDaysBtn" type="button">Repeat Days...</button>
+                    <button id="calendarRepeatDaysBtn" type="button">Select Days...</button>
                     <small id="calendarRepeatDaysSummary">Uses event date</small>
                     <div id="calendarRepeatDaysMenu" class="calendar-repeat-days-menu" hidden>
                       <label><input type="checkbox" data-repeat-day="0" /> Sunday</label>
@@ -284,8 +316,8 @@
                       <label><input type="checkbox" data-repeat-day="5" /> Friday</label>
                       <label><input type="checkbox" data-repeat-day="6" /> Saturday</label>
                       <div class="calendar-repeat-menu-actions">
+                        <button type="button" data-repeat-days-all>Select All</button>
                         <button type="button" data-repeat-days-clear>Clear</button>
-                        <button type="button" data-repeat-days-apply>Apply</button>
                       </div>
                     </div>
                   </div>
@@ -655,7 +687,9 @@
 
     <menu id="binderContextMenu" class="context-menu binder-context-menu" hidden>
       <button data-binder-action="favorite">Favorite</button>
+      <button data-binder-action="rename">Rename</button>
       <button data-binder-action="newPage">New Page Here</button>
+      <button data-binder-action="addPdf">Add PDF Here</button>
       <hr />
       <button data-binder-action="delete">Delete</button>
     </menu>
@@ -663,6 +697,7 @@
     <menu id="colorMenu" class="color-menu" hidden></menu>
     <input id="imageFileInput" class="hidden-file-input" type="file" accept="image/*" />
     <input id="citationPdfInput" class="hidden-file-input" type="file" accept="application/pdf,.pdf" />
+    <input id="binderPdfInput" class="hidden-file-input" type="file" accept="application/pdf,.pdf" />
     <menu id="phraseMenu" class="phrase-menu" hidden></menu>
 
     <div id="printPreviewOverlay" class="print-preview-overlay" hidden>

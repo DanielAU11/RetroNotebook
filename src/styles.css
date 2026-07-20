@@ -540,23 +540,6 @@ button {
   background: #b54848;
 }
 
-.icon-check {
-  border: 1px solid #111;
-  background: #fff;
-}
-
-.icon-check::after {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: 5px;
-  width: 8px;
-  height: 4px;
-  border-left: 3px solid var(--green);
-  border-bottom: 3px solid var(--green);
-  transform: rotate(-45deg);
-}
-
 .section-tabs,
 .side-tabs {
   margin: 0;
@@ -648,9 +631,20 @@ button {
 .binder-body {
   height: 100%;
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: 7px;
+  overflow: hidden;
+}
+
+.binder-body > *,
+.binder-body input,
+.binder-body select,
+.binder-body button {
+  max-width: 100%;
+  min-width: 0;
 }
 
 .button-row {
@@ -667,9 +661,32 @@ button {
 .binder-buttons button {
   flex: 1;
   padding-inline: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .binder-buttons button .icon95 {
+  margin-right: 4px;
+  vertical-align: -3px;
+}
+
+.binder-action-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  min-width: 0;
+}
+
+.binder-action-strip button {
+  min-height: 22px;
+  padding: 2px 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.binder-action-strip .icon95 {
   margin-right: 4px;
   vertical-align: -3px;
 }
@@ -682,7 +699,9 @@ button {
 }
 
 .search-results {
-  max-height: 150px;
+  flex: 0 0 auto;
+  max-width: 100%;
+  max-height: min(150px, 22vh);
   margin-top: 4px;
   padding: 3px;
   overflow: auto;
@@ -696,6 +715,8 @@ button {
 
 .search-results button {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   display: block;
   min-height: 44px;
   padding: 4px;
@@ -703,6 +724,7 @@ button {
   background: transparent;
   box-shadow: none;
   text-align: left;
+  overflow: hidden;
 }
 
 .search-results button:hover,
@@ -823,6 +845,11 @@ button {
   cursor: pointer;
 }
 
+.binder-folder-title:hover,
+.page-item:hover {
+  background: #fff7a8;
+}
+
 .binder-pages {
   margin: 0 0 0 16px;
   padding: 0;
@@ -842,6 +869,16 @@ button {
 .page-item.active {
   background: var(--navy);
   color: #fff;
+}
+
+.pdf-item {
+  background: #fffdf3;
+}
+
+.pdf-item .page-title::after {
+  content: " .pdf";
+  color: #800000;
+  font-weight: normal;
 }
 
 .favorite-slot {
@@ -918,6 +955,11 @@ button {
   border-bottom: 1px solid var(--dark-gray);
 }
 
+.page-meta[hidden],
+.editor-page[hidden] {
+  display: none;
+}
+
 .page-title-input {
   font-weight: bold;
 }
@@ -943,6 +985,116 @@ button {
 .editor-page:empty::before {
   content: "Start typing, paste research, write equations, or switch tabs for flashcards and inserts...";
   color: #666;
+}
+
+.pdf-workspace {
+  height: calc(100% - 8px);
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(220px, 1fr) auto;
+  gap: 6px;
+  margin: 4px 6px;
+  padding: 6px;
+  background: var(--app-gray);
+  box-shadow: inset -1px -1px #fff, inset 1px 1px #808080, inset -2px -2px #dfdfdf, inset 2px 2px #0a0a0a;
+}
+
+.pdf-workspace[hidden] {
+  display: none;
+}
+
+.pdf-toolbar {
+  min-height: 25px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px;
+  background: #d4d0c8;
+  border-bottom: 1px solid #808080;
+}
+
+.pdf-toolbar strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #000080;
+}
+
+.pdf-preview-main {
+  min-height: 0;
+  position: relative;
+  background: #fff;
+  box-shadow: inset -1px -1px #fff, inset 1px 1px #808080, inset -2px -2px #dfdfdf, inset 2px 2px #0a0a0a;
+}
+
+.pdf-preview-main iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  border: 0;
+  display: none;
+  background: #fff;
+}
+
+.pdf-preview-main.has-pdf iframe {
+  display: block;
+}
+
+.pdf-preview-main.has-pdf .pdf-preview-empty {
+  display: none;
+}
+
+.pdf-highlight-panel {
+  max-height: 230px;
+  min-height: 0;
+  overflow: auto;
+  background: #d4d0c8;
+}
+
+.pdf-highlight-form {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content 58px;
+  gap: 5px 7px;
+  align-items: center;
+}
+
+.pdf-highlight-form input,
+.pdf-highlight-form textarea {
+  width: 100%;
+}
+
+.pdf-highlight-form textarea {
+  grid-column: 2 / -1;
+}
+
+.pdf-highlight-list {
+  margin-top: 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pdf-highlight-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 6px;
+  padding: 5px 6px 5px 9px;
+  background: linear-gradient(90deg, var(--highlight-color) 0 5px, #fff 5px);
+  box-shadow: inset -1px -1px #808080, inset 1px 1px #fff;
+}
+
+.pdf-highlight-row strong,
+.pdf-highlight-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-highlight-row small {
+  grid-column: 1;
 }
 
 .editor-page h1,
@@ -1007,29 +1159,6 @@ button {
 .template-editor ol.align-right,
 .card-editor ul.align-right,
 .card-editor ol.align-right {
-  text-align: right;
-}
-
-.checklist-list {
-  list-style: none;
-}
-
-.checklist-list li {
-  min-height: 1.45em;
-}
-
-.checklist-list input[type="checkbox"] {
-  width: 13px;
-  height: 13px;
-  margin: 0 6px 0 0;
-  vertical-align: -2px;
-}
-
-.checklist-list.align-center li {
-  text-align: center;
-}
-
-.checklist-list.align-right li {
   text-align: right;
 }
 
