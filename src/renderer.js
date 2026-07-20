@@ -85,7 +85,7 @@ const SYMBOL_SETS = {
   }
 };
 const QUICK_SYMBOLS = ["β", "γ", "α", "β", "®", "η", "π", "Δ", "γ", "σ", "μ", "ρ", "∞", "™", "°", "≥"];
-const AUTOCORRECT_MAP = {
+const COMMON_SPELLING_FIXES = {
   teh: "the",
   adn: "and",
   recieve: "receive",
@@ -113,7 +113,7 @@ const BASE_SPELL_WORDS = `
   person people patient patients student students teacher teachers author authors article articles essay essays sentence sentences paragraph paragraphs increase increased decreasing
   obvious obviously wrong correct correction corrected prostaglandin prostaglandins blocker blockers agonist agonists antagonist antagonists analog analogue analogues medication medications
 `.split(/\s+/).filter(Boolean);
-const SPELL_WORD_SET = new Set([...BASE_SPELL_WORDS, ...Object.values(AUTOCORRECT_MAP)].map((word) => word.toLowerCase()));
+const SPELL_WORD_SET = new Set([...BASE_SPELL_WORDS, ...Object.values(COMMON_SPELLING_FIXES)].map((word) => word.toLowerCase()));
 
 const els = {};
 let state;
@@ -671,15 +671,10 @@ function bindRichEditors() {
       activeRichEditor = editor;
       rememberSelectionForTarget(editor);
     });
-    editor.addEventListener("keyup", (event) => {
-      if (/^(\s|[.,;:!?)]|Spacebar)$/.test(event.key) || event.key === " ") {
-        maybeAutocorrect(editor, { inputType: "insertText", data: event.key === "Spacebar" ? " " : event.key });
-        maybeAutocorrectWithDictionary(editor, event);
-      }
+    editor.addEventListener("keyup", () => {
       rememberSelectionForTarget(editor);
     });
-    editor.addEventListener("input", (event) => {
-      maybeAutocorrect(editor, event);
+    editor.addEventListener("input", () => {
       if (editor === els.editor) return;
       renderWidgets();
       typesetMath();
@@ -734,7 +729,7 @@ function showSpellcheckHelp() {
   openSpellcheckTool();
 }
 
-function maybeAutocorrect(editor, event) {
+function legacyDisabledTypingCorrection(editor, event) {
   if (!editor?.isContentEditable) return;
   if (event?.inputType && !["insertText", "insertCompositionText"].includes(event.inputType)) return;
   if (event?.data && !/[\s.,;:!?)]/.test(event.data)) return;
@@ -751,7 +746,7 @@ function maybeAutocorrect(editor, event) {
   const typed = match[2];
   const lower = typed.toLowerCase();
   const suggestion = spellingSuggestionsFor(lower)[0];
-  const replacement = AUTOCORRECT_MAP[lower] || (shouldAutocorrect(lower, suggestion) ? suggestion : "");
+  const replacement = COMMON_SPELLING_FIXES[lower] || (shouldSuggestClosestSpelling(lower, suggestion) ? suggestion : "");
   if (!replacement || replacement === typed) return;
   const corrected = typed[0] === typed[0].toUpperCase() ? replacement[0].toUpperCase() + replacement.slice(1) : replacement;
   const start = offset - match[3].length - typed.length;
@@ -769,7 +764,7 @@ function maybeAutocorrect(editor, event) {
   }
 }
 
-async function maybeAutocorrectWithDictionary(editor, event) {
+async function legacyDisabledDictionaryCorrection(editor, event) {
   if (!editor?.isContentEditable) return;
   if (event?.key && !/^(\s|[.,;:!?)]|Spacebar)$/.test(event.key) && event.key !== " ") return;
   const info = wordBeforeCaret(editor);
@@ -777,7 +772,7 @@ async function maybeAutocorrectWithDictionary(editor, event) {
   const result = await window.retroNotebook?.spellcheck?.suggest?.(info.word);
   if (!result || result.correct) return;
   const suggestion = unique([...(result.suggestions || []), ...spellingSuggestionsFor(info.word, result.suggestions || [])])[0];
-  if (!shouldAutocorrect(info.word, suggestion)) return;
+  if (!shouldSuggestClosestSpelling(info.word, suggestion)) return;
   try {
     info.range.deleteContents();
     const replacement = info.word[0] === info.word[0].toUpperCase() ? suggestion[0].toUpperCase() + suggestion.slice(1) : suggestion;
@@ -814,7 +809,7 @@ function wordBeforeCaret(editor) {
   return { word: match[2], range };
 }
 
-function shouldAutocorrect(word, suggestion) {
+function shouldSuggestClosestSpelling(word, suggestion) {
   if (!suggestion || word.length < 5 || isKnownSpelling(word)) return false;
   if (/^[A-Z]/.test(word) || /[^a-z']/i.test(word)) return false;
   return spellingDistance(word.toLowerCase(), suggestion.toLowerCase()) <= 2;
@@ -832,7 +827,7 @@ function spellingSuggestionsFor(word, nativeSuggestions = []) {
   if (!lower || isKnownSpelling(lower)) return [];
   const dedoubled = /(.)\1$/i.test(lower) ? lower.slice(0, -1) : "";
   const direct = unique([
-    AUTOCORRECT_MAP[lower],
+    COMMON_SPELLING_FIXES[lower],
     dedoubled && isKnownSpelling(dedoubled) ? dedoubled : ""
   ].filter(Boolean));
   const candidates = new Set([...direct, ...nativeSuggestions, ...SPELL_WORD_SET]);
@@ -877,7 +872,7 @@ async function openSpellcheckTool() {
   const editor = currentRichEditor();
   const issues = await collectSpellingIssues(editor);
   dialogResolve = () => {};
-  els.dialogTitle.textContent = "Spelling And Autocorrect";
+  els.dialogTitle.textContent = "Spelling";
   els.dialogMessage.textContent = issues.length
     ? "Select a word, choose a suggestion, then replace it or add the word to your dictionary."
     : "No likely misspellings found in the current workspace.";
@@ -1671,8 +1666,9 @@ function upgradeTutorialDemo(nextState) {
   if (!tutorial.content.includes("target=\"_blank\"")) {
     tutorial.content += '<h2>Hyperlink</h2><p><a href="https://github.com/DanielAU11/RetroNotebook" target="_blank" rel="noopener noreferrer">Open the RetroNotebook repository</a>.</p>';
   }
-  if (!tutorial.content.includes("Spelling And Autocorrect")) {
-    tutorial.content += "<h2>Spelling And Autocorrect</h2><p>Use the spelling toolbar button to scan the current page, replace one word or all matches, and manage the custom dictionary. Right-click underlined words for the same suggestions in the context menu.</p>";
+  tutorial.content = tutorial.content.replace(/Spelling And Autocorrect/g, "Spelling");
+  if (!tutorial.content.includes("<h2>Spelling</h2>")) {
+    tutorial.content += "<h2>Spelling</h2><p>Use the spelling toolbar button to scan the current page, replace one word or all matches, and manage the custom dictionary. Right-click underlined words for the same suggestions in the context menu.</p>";
   }
   if (!tutorial.content.includes("Symbols And Formatting")) {
     tutorial.content += "<h2>Symbols And Formatting</h2><p>The omega button opens a searchable Word-style symbol picker. Text color, highlight color, line spacing, superscript, subscript, headers, footers, and page numbers live in the toolbar and page setup window.</p>";
@@ -1786,7 +1782,7 @@ function seedState() {
         paperSize: "letter",
         pageSetup: { ...DEFAULT_PAGE_SETUP, header: "Retro Notebook Tutorial", footer: "Local-first study workspace", pageNumberPosition: "bottom-right" },
         content:
-          `<h1>Retro Notebook Tutorial</h1><p>This single notebook is the starter tour. Create colored notebooks from the binder, write rich pages, save equations, insert tables, build editable charts and graphs, capture templates, create flashcards, add hyperlinks, and type /summary or /card to try smartphrases.</p><h2>Equation</h2><p>Saved equations can be named in the LaTeX tab and inserted from the sigma toolbar dropdown: \\[\\frac{d}{dx}x^2 = 2x\\]</p><h2>Tags, Glossary, And Links</h2><p>Use the tag field to type tags separated by commas, insert glossary headings with Heading 3, and add a link like <a href="https://github.com/DanielAU11/RetroNotebook" target="_blank" rel="noopener noreferrer">RetroNotebook on GitHub</a>.</p><h2>Symbols And Formatting</h2><p>The omega button opens a searchable symbol picker. The toolbar also supports custom text color, highlight color, line spacing, superscript, subscript, headers, footers, and page numbers.</p><h2>Spelling And Autocorrect</h2><p>Use the spelling toolbar button to scan the current page, replace one word or all matches, and manage the custom dictionary. Right-click underlined words for suggestions.</p><h2>Citation Manager</h2><p>Numeric citation styles insert linked superscripts. This demo source jumps to the matching bibliography entry below<span class="citation-ref numeric" contenteditable="false" data-citation-id="${tutorialCitationId}"><a href="#ref-${tutorialCitationId}">1</a></span>.</p><h2>Editable Table</h2><table><tbody><tr><th>Feature</th><th>Where</th></tr><tr><td>AutoFit table behavior</td><td>Insert Table dialog</td></tr><tr><td>SmartPhrase</td><td>Type / in the page</td></tr></tbody></table><p>Right-click cells to add or delete rows and columns, drag borders to resize, and choose table header color during creation.</p><h2>Editable Chart</h2><div class="retro-widget chart-widget" contenteditable="false" data-chart="${encodeDataSet(tutorialChart)}"><div class="widget-title"><span class="widget-name">Retention Workflow</span></div><canvas class="chart-canvas"></canvas></div><h2>Editable 3D Graph</h2><p>Drag the canvas, use arrow buttons to rotate, plus and minus to zoom, and Fit to recenter. Edit changes variables, colors, labels, axis titles, and data values.</p><div class="retro-widget graph-widget" contenteditable="false" data-graph="${encodeDataSet(tutorialGraph)}"><div class="widget-title"><span class="widget-name">3D Learning Model</span></div><canvas class="graph-canvas"></canvas></div><h2>Tables, Images, And PDFs</h2><p>Paste images into rich editors, resize inserted images, and add PDFs to binder folders for preview.</p><h2>Calendar And Study Tools</h2><p>The Calendar tab supports week and month views, reminders, time ranges, repeat rules, repeat days, and end dates. Flashcards can be reviewed by notebook and page with spaced-repetition grading.</p><h2>Study Loop</h2><ul><li>Select text and create flashcards.</li><li>Review cards with Again, Hard, Good, and Easy.</li><li>Save reusable page layouts in Templates.</li><li>Use Print Preview to see automatic page flow, headers, footers, and page numbers.</li></ul><section class="citation-bibliography"><h1>Citations</h1><ol><li id="ref-${tutorialCitationId}">Roediger HL; Karpicke JD. Retrieval Practice Produces Memory Benefits. Psychological Science. 2006. doi:10.1111/j.1467-9280.2006.01693.x</li></ol></section>`,
+          `<h1>Retro Notebook Tutorial</h1><p>This single notebook is the starter tour. Create colored notebooks from the binder, write rich pages, save equations, insert tables, build editable charts and graphs, capture templates, create flashcards, add hyperlinks, and type /summary or /card to try smartphrases.</p><h2>Equation</h2><p>Saved equations can be named in the LaTeX tab and inserted from the sigma toolbar dropdown: \\[\\frac{d}{dx}x^2 = 2x\\]</p><h2>Tags, Glossary, And Links</h2><p>Use the tag field to type tags separated by commas, insert glossary headings with Heading 3, and add a link like <a href="https://github.com/DanielAU11/RetroNotebook" target="_blank" rel="noopener noreferrer">RetroNotebook on GitHub</a>.</p><h2>Symbols And Formatting</h2><p>The omega button opens a searchable symbol picker. The toolbar also supports custom text color, highlight color, line spacing, superscript, subscript, headers, footers, and page numbers.</p><h2>Spelling</h2><p>Use the spelling toolbar button to scan the current page, replace one word or all matches, and manage the custom dictionary. Right-click underlined words for suggestions.</p><h2>Citation Manager</h2><p>Numeric citation styles insert linked superscripts. This demo source jumps to the matching bibliography entry below<span class="citation-ref numeric" contenteditable="false" data-citation-id="${tutorialCitationId}"><a href="#ref-${tutorialCitationId}">1</a></span>.</p><h2>Editable Table</h2><table><tbody><tr><th>Feature</th><th>Where</th></tr><tr><td>AutoFit table behavior</td><td>Insert Table dialog</td></tr><tr><td>SmartPhrase</td><td>Type / in the page</td></tr></tbody></table><p>Right-click cells to add or delete rows and columns, drag borders to resize, and choose table header color during creation.</p><h2>Editable Chart</h2><div class="retro-widget chart-widget" contenteditable="false" data-chart="${encodeDataSet(tutorialChart)}"><div class="widget-title"><span class="widget-name">Retention Workflow</span></div><canvas class="chart-canvas"></canvas></div><h2>Editable 3D Graph</h2><p>Drag the canvas, use arrow buttons to rotate, plus and minus to zoom, and Fit to recenter. Edit changes variables, colors, labels, axis titles, and data values.</p><div class="retro-widget graph-widget" contenteditable="false" data-graph="${encodeDataSet(tutorialGraph)}"><div class="widget-title"><span class="widget-name">3D Learning Model</span></div><canvas class="graph-canvas"></canvas></div><h2>Tables, Images, And PDFs</h2><p>Paste images into rich editors, resize inserted images, and add PDFs to binder folders for preview.</p><h2>Calendar And Study Tools</h2><p>The Calendar tab supports week and month views, reminders, time ranges, repeat rules, repeat days, and end dates. Flashcards can be reviewed by notebook and page with spaced-repetition grading.</p><h2>Study Loop</h2><ul><li>Select text and create flashcards.</li><li>Review cards with Again, Hard, Good, and Easy.</li><li>Save reusable page layouts in Templates.</li><li>Use Print Preview to see automatic page flow, headers, footers, and page numbers.</li></ul><section class="citation-bibliography"><h1>Citations</h1><ol><li id="ref-${tutorialCitationId}">Roediger HL; Karpicke JD. Retrieval Practice Produces Memory Benefits. Psychological Science. 2006. doi:10.1111/j.1467-9280.2006.01693.x</li></ol></section>`,
         plain: "Retro Notebook Tutorial. Create colored notebooks, rich pages, equations, charts, 3D graphs, templates, citations, hyperlinks, flashcards, and smartphrases.",
         cards: [
           makeCard(
@@ -4763,7 +4759,7 @@ function appMenuItems() {
       { label: "SmartPhrases", action: "phrases" },
       { label: "Citation Manager", action: "citations" },
       { label: "Calendar", action: "calendar" },
-      { label: "Spelling And Autocorrect", action: "spellcheck" },
+      { label: "Spelling", action: "spellcheck" },
       { label: "Start Dictation", action: "dictation" },
       { label: "Read Selected Text", action: "speak" },
       { separator: true },
